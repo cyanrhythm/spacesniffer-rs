@@ -1,0 +1,12 @@
+[package]
+name = "spacesnifferx"
+version = "0.1.0"
+edition = "2021"
+description = "A cross-platform disk space analyzer with treemap visualization"
+
+[dependencies]
+eframe = "0.31"
+egui = "0.31"
+
+[profile.release]
+opt-level = 2
