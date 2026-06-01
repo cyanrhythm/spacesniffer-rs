@@ -16,6 +16,8 @@ pub struct SpaceSnifferApp {
     nav_names: Vec<String>,
     treemap_rects: Vec<TreemapCell>,
     error_message: Option<String>,
+    context_menu: Option<ContextMenuState>,
+    delete_confirm: Option<Vec<usize>>,
 }
 
 struct TreemapCell {
@@ -29,11 +31,17 @@ struct BreadcrumbSnapshot {
     stack_len: usize,
 }
 
+struct ContextMenuState {
+    nav_path: Vec<usize>,
+    position: egui::Pos2,
+}
+
 impl SpaceSnifferApp {
     pub fn new() -> Self {
         let scan_progress = Arc::new(Mutex::new(ScanProgress {
             phase: ScanPhase::Idle,
             result: None,
+            partial_root: None,
             files_processed: 0,
             dirs_processed: 0,
             total_bytes: 0,
@@ -41,7 +49,7 @@ impl SpaceSnifferApp {
             cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }));
 
-        let mut app = Self {
+        let app = Self {
             scan_path: dirs_or_home(),
             scan_progress: scan_progress.clone(),
             root: None,
@@ -49,9 +57,10 @@ impl SpaceSnifferApp {
             nav_names: Vec::new(),
             treemap_rects: Vec::new(),
             error_message: None,
+            context_menu: None,
+            delete_confirm: None,
         };
 
-        app.start_scan();
         app
     }
 
@@ -62,17 +71,22 @@ impl SpaceSnifferApp {
         self.nav_names.clear();
         self.treemap_rects.clear();
         self.error_message = None;
+        self.context_menu = None;
+        self.delete_confirm = None;
 
         let path = PathBuf::from(&self.scan_path);
-        let progress = self.scan_progress.clone();
+        let progress = Arc::new(Mutex::new(ScanProgress {
+            phase: ScanPhase::Idle,
+            result: None,
+            partial_root: None,
+            files_processed: 0,
+            dirs_processed: 0,
+            total_bytes: 0,
+            current_path: String::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }));
 
-        {
-            let mut p = progress.lock().unwrap();
-            p.phase = ScanPhase::Idle;
-            p.result = None;
-            p.cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        }
-
+        self.scan_progress = progress.clone();
         scanner::start_scan(path, progress);
     }
 
@@ -85,7 +99,17 @@ impl SpaceSnifferApp {
     fn check_scan_result(&mut self) {
         let mut p = self.scan_progress.lock().unwrap();
 
+        // Check for partial (incremental) results
+        if let Some(partial) = p.partial_root.take() {
+            if self.root.is_none() {
+                self.nav_names.push(partial.name.clone());
+            }
+            self.root = Some(partial);
+        }
+
+        // Check for final result
         if let Some(root) = p.result.take() {
+            self.nav_names.clear();
             self.nav_names.push(root.name.clone());
             self.root = Some(root);
         }
@@ -125,6 +149,7 @@ impl SpaceSnifferApp {
         self.nav_names.push(child.name.clone());
         self.nav_stack.push(child_index);
         self.treemap_rects.clear();
+        self.context_menu = None;
     }
 
     pub fn navigate_up(&mut self) {
@@ -134,18 +159,103 @@ impl SpaceSnifferApp {
         self.nav_names.pop();
         self.nav_stack.pop();
         self.treemap_rects.clear();
+        self.context_menu = None;
     }
 
     pub fn navigate_to_root(&mut self) {
         self.nav_names.truncate(1);
         self.nav_stack.clear();
         self.treemap_rects.clear();
+        self.context_menu = None;
     }
 
     fn get_breadcrumb_data(&self) -> BreadcrumbSnapshot {
         BreadcrumbSnapshot {
             names: self.nav_names.clone(),
             stack_len: self.nav_stack.len(),
+        }
+    }
+
+    fn get_entry_by_path(&self, path: &[usize]) -> Option<&FileEntry> {
+        let root = self.root.as_ref()?;
+        let mut node = root;
+        for &idx in path {
+            if idx >= node.children.len() {
+                return None;
+            }
+            node = &node.children[idx];
+        }
+        Some(node)
+    }
+
+    fn perform_delete(&mut self, nav_path: &[usize]) {
+        if let Some(root) = self.root.as_mut() {
+            let removed = {
+                let mut node = root;
+                let parent_depth = nav_path.len().saturating_sub(1);
+                for &idx in &nav_path[..parent_depth] {
+                    if idx >= node.children.len() {
+                        return;
+                    }
+                    node = &mut node.children[idx];
+                }
+                let target_idx = *nav_path.last().unwrap_or(&0);
+                if target_idx >= node.children.len() {
+                    return;
+                }
+                let target = &node.children[target_idx];
+
+                let result = if target.is_dir {
+                    std::fs::remove_dir_all(&target.path)
+                } else {
+                    std::fs::remove_file(&target.path)
+                };
+
+                if result.is_err() {
+                    return;
+                }
+
+                node.children.remove(target_idx);
+                true
+            };
+
+            if removed {
+                self.recalculate_sizes();
+                self.fix_navigation();
+                self.treemap_rects.clear();
+            }
+        }
+    }
+
+    fn recalculate_sizes(&mut self) {
+        if let Some(root) = self.root.as_mut() {
+            recalc_node(root);
+        }
+    }
+
+    fn fix_navigation(&mut self) {
+        let mut node = match self.root.as_ref() {
+            Some(n) => n,
+            None => {
+                self.nav_stack.clear();
+                self.nav_names.truncate(1);
+                return;
+            }
+        };
+
+        let mut new_stack = Vec::new();
+
+        for &idx in &self.nav_stack {
+            if idx >= node.children.len() {
+                break;
+            }
+            new_stack.push(idx);
+            node = &node.children[idx];
+        }
+
+        if new_stack.len() != self.nav_stack.len() {
+            self.nav_names.truncate(new_stack.len() + 1);
+            self.nav_stack = new_stack;
         }
     }
 
@@ -197,12 +307,11 @@ impl eframe::App for SpaceSnifferApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
 
-            let breadcrumb_data = self.get_breadcrumb_data();
+        let breadcrumb_data = self.get_breadcrumb_data();
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("SpaceSnifferX");
-
                 ui.separator();
 
                 let path_edit = ui.add(
@@ -225,14 +334,22 @@ impl eframe::App for SpaceSnifferApp {
                     self.cancel_scan();
                 }
 
-                ui.separator();
+                if ui.button("Browse...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                        self.scan_path = path.display().to_string();
+                        self.start_scan();
+                    }
+                }
 
+                ui.separator();
                 render_breadcrumbs(ui, &breadcrumb_data, self);
             });
         });
 
         self.render_treemap_area(ctx, is_scanning);
         self.render_bottom_panel(ctx);
+        self.render_context_menu(ctx);
+        self.render_delete_confirm(ctx);
     }
 }
 
@@ -240,11 +357,13 @@ impl SpaceSnifferApp {
     fn render_treemap_area(&mut self, ctx: &egui::Context, is_scanning: bool) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(msg) = self.error_message.clone() {
-                let needs_retry = ui.vertical_centered(|ui| {
-                    ui.add_space(100.0);
-                    ui.colored_label(Color32::RED, format!("Error: {}", msg));
-                    ui.button("Retry").clicked()
-                }).inner;
+                let needs_retry = ui
+                    .vertical_centered(|ui| {
+                        ui.add_space(100.0);
+                        ui.colored_label(Color32::RED, format!("Error: {}", msg));
+                        ui.button("Retry").clicked()
+                    })
+                    .inner;
                 if needs_retry {
                     self.error_message = None;
                     self.start_scan();
@@ -252,7 +371,32 @@ impl SpaceSnifferApp {
                 return;
             }
 
-            if is_scanning || self.root.is_none() {
+            if self.root.is_some() {
+                self.render_treemap(ui);
+                // Show scanning overlay indicator
+                if is_scanning {
+                    let p = self.scan_progress.lock().unwrap();
+                egui::Area::new(egui::Id::new("scan_overlay"))
+                    .anchor(egui::Align2::RIGHT_TOP, [-16.0, 0.0])
+                        .show(ctx, |ui| {
+                            egui::Frame::NONE
+                                .fill(Color32::from_black_alpha(180))
+                                .corner_radius(4.0)
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.spinner();
+                                        ui.label(format!(
+                                            "Scanning... {} files, {} dirs",
+                                            p.files_processed, p.dirs_processed
+                                        ));
+                                    });
+                                });
+                        });
+                }
+                return;
+            }
+
+            if is_scanning {
                 let p = self.scan_progress.lock().unwrap();
                 ui.vertical_centered(|ui| {
                     ui.add_space(100.0);
@@ -275,7 +419,19 @@ impl SpaceSnifferApp {
                 return;
             }
 
-            self.render_treemap(ui);
+            ui.vertical_centered(|ui| {
+                ui.add_space(100.0);
+                ui.heading("SpaceSnifferX");
+                ui.add_space(10.0);
+                ui.label("Enter a directory path and click Scan to start analyzing.");
+                ui.add_space(20.0);
+                if ui.button("Or Browse...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                        self.scan_path = path.display().to_string();
+                        self.start_scan();
+                    }
+                }
+            });
         });
     }
 
@@ -328,6 +484,8 @@ impl SpaceSnifferApp {
         let depth = self.nav_stack.len();
         let darken = 1.0 - (depth as f32 * 0.06).min(0.4);
 
+        let mut right_click_target: Option<(Vec<usize>, egui::Pos2)> = None;
+
         for cell in &new_treemap_rects {
             let child = &node.children[cell.index];
             let base_color = Self::color_for_entry(child);
@@ -364,7 +522,11 @@ impl SpaceSnifferApp {
             if cell.rect.width() > 30.0 && cell.rect.height() > 18.0 {
                 let font_size = (cell.rect.height() / 4.0).clamp(10.0, 18.0);
                 let text = if cell.rect.width() > 60.0 && cell.rect.height() > 36.0 {
-                    format!("{}\n{}", truncate_name(&child.name, 30), Self::format_size(child.size))
+                    format!(
+                        "{}\n{}",
+                        truncate_name(&child.name, 30),
+                        Self::format_size(child.size)
+                    )
                 } else if cell.rect.width() > 40.0 && cell.rect.height() > 20.0 {
                     truncate_name(&child.name, 25)
                 } else {
@@ -372,19 +534,38 @@ impl SpaceSnifferApp {
                 };
 
                 if !text.is_empty() {
-                    painter.text(
-                        cell.rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        text,
-                        egui::FontId::proportional(font_size),
-                        Color32::WHITE,
-                    );
+                    let clip = painter.with_clip_rect(cell.rect);
+                    let est_width = est_text_width(&text, font_size);
+                    let padding = 8.0;
+                    if est_width <= cell.rect.width() - padding {
+                        clip.text(
+                            cell.rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            text,
+                            egui::FontId::proportional(font_size),
+                            Color32::WHITE,
+                        );
+                    } else {
+                        clip.text(
+                            egui::pos2(cell.rect.min.x + 4.0, cell.rect.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            text,
+                            egui::FontId::proportional(font_size),
+                            Color32::WHITE,
+                        );
+                    }
                 }
             }
         }
 
+        let right_clicked = ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Secondary));
+
         if let Some(hovered) = new_hovered {
-            if response.clicked() {
+            if right_clicked {
+                let mut nav_path = self.nav_stack.clone();
+                nav_path.push(hovered);
+                right_click_target = Some((nav_path, hover_pos.unwrap_or_default()));
+            } else if response.clicked() {
                 let child = &node.children[hovered];
                 if child.is_dir && !child.children.is_empty() {
                     self.navigate_into(hovered);
@@ -419,6 +600,13 @@ impl SpaceSnifferApp {
         }
 
         self.treemap_rects = new_treemap_rects;
+
+        if let Some((nav_path, pos)) = right_click_target {
+            self.context_menu = Some(ContextMenuState {
+                nav_path,
+                position: pos,
+            });
+        }
     }
 
     fn render_bottom_panel(&mut self, ctx: &egui::Context) {
@@ -449,12 +637,114 @@ impl SpaceSnifferApp {
             });
         });
     }
+
+    fn render_context_menu(&mut self, ctx: &egui::Context) {
+        let (nav_path, position, path, is_dir) = {
+            let menu = match self.context_menu.as_ref() {
+                Some(m) => m,
+                None => return,
+            };
+
+            let entry = self.get_entry_by_path(&menu.nav_path);
+            if entry.is_none() {
+                self.context_menu = None;
+                return;
+            }
+            let entry = entry.unwrap();
+            (
+                menu.nav_path.clone(),
+                menu.position,
+                entry.path.clone(),
+                entry.is_dir,
+            )
+        };
+
+        let clicked_away = ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
+
+        egui::Area::new(egui::Id::new("file_context_menu"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(position)
+            .show(ctx, |ui| {
+                egui::Frame::popup(&ctx.style()).show(ui, |ui| {
+                    ui.set_min_width(180.0);
+                    if ui.button("Open file location").clicked() {
+                        open_file_location(&path);
+                        self.context_menu = None;
+                    }
+                    if ui
+                        .button(format!(
+                            "Delete {}",
+                            if is_dir { "folder" } else { "file" }
+                        ))
+                        .clicked()
+                    {
+                        self.delete_confirm = Some(nav_path);
+                        self.context_menu = None;
+                    }
+                });
+            });
+
+        if clicked_away && self.context_menu.is_some() {
+            self.context_menu = None;
+        }
+    }
+
+    fn render_delete_confirm(&mut self, ctx: &egui::Context) {
+        let (nav_path, entry_name) = {
+            let nav = match self.delete_confirm.clone() {
+                Some(p) => p,
+                None => return,
+            };
+
+            let entry = self.get_entry_by_path(&nav);
+            if entry.is_none() {
+                self.delete_confirm = None;
+                return;
+            }
+            let entry = entry.unwrap();
+            (nav, entry.name.clone())
+        };
+
+        let mut show = true;
+        egui::Window::new("Confirm Delete")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut show)
+            .show(ctx, |ui| {
+                ui.set_min_width(320.0);
+                ui.label(format!(
+                    "Are you sure you want to delete \"{}\"?\n\nThis action cannot be undone.",
+                    entry_name
+                ));
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.delete_confirm = None;
+                    }
+                    if ui
+                        .add(egui::Button::new(
+                            egui::RichText::new("Delete").color(Color32::RED),
+                        ))
+                        .clicked()
+                    {
+                        self.perform_delete(&nav_path);
+                        self.delete_confirm = None;
+                    }
+                });
+            });
+
+        if !show {
+            self.delete_confirm = None;
+        }
+    }
 }
 
 fn render_legend_item(ui: &mut egui::Ui, color: Color32, label: &str) {
     let size = egui::vec2(14.0, 14.0);
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    ui.painter().rect_filled(rect, egui::CornerRadius::same(2), color);
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(2), color);
     ui.label(label);
 }
 
@@ -476,7 +766,6 @@ fn render_breadcrumbs(
         let is_root = data.stack_len == 0;
         if button(ui, &data.names[0], is_root).clicked() {
             app.navigate_to_root();
-            return;
         }
     }
 
@@ -490,6 +779,7 @@ fn render_breadcrumbs(
                 app.nav_stack.pop();
             }
             app.treemap_rects.clear();
+            app.context_menu = None;
             return;
         }
     }
@@ -508,14 +798,27 @@ fn dirs_or_home() -> String {
     }
 }
 
-fn truncate_name(name: &str, max_len: usize) -> String {
-    if name.len() <= max_len {
+fn truncate_name(name: &str, max_chars: usize) -> String {
+    if name.chars().count() <= max_chars {
         name.to_string()
     } else {
-        let mut s = name[..max_len.saturating_sub(2)].to_string();
-        s.push_str("..");
-        s
+        let limit = max_chars.saturating_sub(2);
+        let truncated: String = name.chars().take(limit).collect();
+        truncated + ".."
     }
+}
+
+fn est_text_width(text: &str, font_size: f32) -> f32 {
+    let mut cjk_count = 0.0f32;
+    let mut ascii_count = 0.0f32;
+    for ch in text.chars() {
+        if ch > '\u{2e80}' {
+            cjk_count += 1.0;
+        } else {
+            ascii_count += 1.0;
+        }
+    }
+    ascii_count * font_size * 0.52 + cjk_count * font_size * 0.85
 }
 
 fn color_for_extension(ext: &str) -> Color32 {
@@ -533,9 +836,7 @@ fn color_for_extension(ext: &str) -> Color32 {
             Color32::from_rgb(200, 100, 200)
         }
         "mp4" | "avi" | "mkv" | "mov" | "wmv" | "flv" | "webm" => Color32::from_rgb(220, 80, 80),
-        "mp3" | "wav" | "flac" | "aac" | "ogg" | "wma" | "m4a" => {
-            Color32::from_rgb(100, 100, 220)
-        }
+        "mp3" | "wav" | "flac" | "aac" | "ogg" | "wma" | "m4a" => Color32::from_rgb(100, 100, 220),
         "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar" | "tgz" | "iso" => {
             Color32::from_rgb(200, 200, 80)
         }
@@ -577,4 +878,37 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
         ((g + m) * 255.0) as u8,
         ((b + m) * 255.0) as u8,
     )
+}
+
+fn recalc_node(node: &mut FileEntry) -> u64 {
+    let mut total = 0u64;
+    for child in &mut node.children {
+        if child.is_dir {
+            total += recalc_node(child);
+        } else {
+            total += child.size;
+        }
+    }
+    node.size = total;
+    total
+}
+
+fn open_file_location(path: &std::path::Path) {
+    let result = if cfg!(target_os = "windows") {
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(path.as_os_str())
+            .spawn()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+            .args(["-R", &path.display().to_string()])
+            .spawn()
+    } else {
+        if let Some(parent) = path.parent() {
+            std::process::Command::new("xdg-open").arg(parent).spawn()
+        } else {
+            return;
+        }
+    };
+    let _ = result;
 }
