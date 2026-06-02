@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
 mod app;
+mod colors;
 mod scanner;
 mod treemap;
+mod util;
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {

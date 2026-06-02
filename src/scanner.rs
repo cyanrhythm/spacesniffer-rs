@@ -17,10 +17,11 @@ pub struct FileEntry {
 
 pub struct ScanProgress {
     pub phase: ScanPhase,
-    pub result: Option<FileEntry>,
+    pub result: Option<Arc<FileEntry>>,
     pub partial_root: Option<FileEntry>,
     pub files_processed: u64,
     pub dirs_processed: u64,
+    pub skipped_dirs: u64,
     pub total_bytes: u64,
     pub current_path: String,
     pub cancelled: Arc<AtomicBool>,
@@ -34,7 +35,17 @@ pub enum ScanPhase {
     Error(String),
 }
 
+/// Starts a recursive scan in a background thread.
+/// Uses `Arc<FileEntry>` for the final result to avoid a deep clone
+/// when transferring ownership from the scanner thread to the UI thread.
+/// The `cancelled` flag is also passed by reference to the recursive
+/// function so it can be read without locking `ScanProgress`.
 pub fn start_scan(root_path: PathBuf, progress: Arc<Mutex<ScanProgress>>) {
+    let cancelled = {
+        let p = progress.lock().unwrap();
+        p.cancelled.clone()
+    };
+
     std::thread::spawn(move || {
         {
             let mut p = progress.lock().unwrap();
@@ -43,6 +54,7 @@ pub fn start_scan(root_path: PathBuf, progress: Arc<Mutex<ScanProgress>>) {
             p.partial_root = None;
             p.files_processed = 0;
             p.dirs_processed = 0;
+            p.skipped_dirs = 0;
             p.total_bytes = 0;
             p.current_path = root_path.display().to_string();
         }
@@ -53,7 +65,7 @@ pub fn start_scan(root_path: PathBuf, progress: Arc<Mutex<ScanProgress>>) {
         let on_progress = move |snapshot: &FileEntry| {
             let mut last = last_update.lock().unwrap();
             let now = Instant::now();
-            if now.duration_since(*last).as_millis() < 150 {
+            if now.duration_since(*last).as_millis() < 250 {
                 return;
             }
             *last = now;
@@ -62,16 +74,16 @@ pub fn start_scan(root_path: PathBuf, progress: Arc<Mutex<ScanProgress>>) {
             }
         };
 
-        match scan_recursive(&root_path, &progress, &on_progress) {
+        match scan_recursive(&root_path, &progress, &cancelled, &on_progress) {
             Ok(root) => {
                 let mut p = progress.lock().unwrap();
                 p.phase = ScanPhase::Done;
-                p.result = Some(root);
+                p.result = Some(Arc::new(root));
                 p.partial_root = None;
             }
             Err(e) => {
                 let mut p = progress.lock().unwrap();
-                if !p.cancelled.load(Ordering::Relaxed) {
+                if !cancelled.load(Ordering::Relaxed) {
                     p.phase = ScanPhase::Error(e.to_string());
                 } else {
                     p.phase = ScanPhase::Error("Scan cancelled.".to_string());
@@ -84,18 +96,20 @@ pub fn start_scan(root_path: PathBuf, progress: Arc<Mutex<ScanProgress>>) {
 fn scan_recursive(
     path: &Path,
     progress: &Arc<Mutex<ScanProgress>>,
+    cancelled: &Arc<AtomicBool>,
     on_progress: &dyn Fn(&FileEntry),
 ) -> std::io::Result<FileEntry> {
-    scan_recursive_inner(path, progress, on_progress, 0)
+    scan_recursive_inner(path, progress, cancelled, on_progress, 0)
 }
 
 fn scan_recursive_inner(
     path: &Path,
     progress: &Arc<Mutex<ScanProgress>>,
+    cancelled: &Arc<AtomicBool>,
     on_progress: &dyn Fn(&FileEntry),
     depth: usize,
 ) -> std::io::Result<FileEntry> {
-    if progress.lock().unwrap().cancelled.load(Ordering::Relaxed) {
+    if cancelled.load(Ordering::Relaxed) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::Interrupted,
             "Scan cancelled",
@@ -158,23 +172,25 @@ fn scan_recursive_inner(
             }
         }
         Err(e) => {
-            if e.kind() == std::io::ErrorKind::PermissionDenied
-                || e.kind() == std::io::ErrorKind::NotFound
-            {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                let mut p = progress.lock().unwrap();
+                p.skipped_dirs += 1;
+                return Ok(entry);
+            }
+            if e.kind() == std::io::ErrorKind::NotFound {
                 return Ok(entry);
             }
             return Err(e);
         }
     }
 
-    // After listing all files, send initial snapshot (only at root level)
     if depth == 0 {
         let snapshot = snapshot_entry(&entry, &children);
         on_progress(&snapshot);
     }
 
     for child_path in child_dirs_to_scan {
-        match scan_recursive_inner(&child_path, progress, on_progress, depth + 1) {
+        match scan_recursive_inner(&child_path, progress, cancelled, on_progress, depth + 1) {
             Ok(child) => {
                 entry.size += child.size;
                 children.push(child);
@@ -194,11 +210,10 @@ fn scan_recursive_inner(
             }
         }
 
-        if progress.lock().unwrap().cancelled.load(Ordering::Relaxed) {
+        if cancelled.load(Ordering::Relaxed) {
             break;
         }
 
-        // After each subdirectory, send updated snapshot (only at root level)
         if depth == 0 {
             let snapshot = snapshot_entry(&entry, &children);
             on_progress(&snapshot);

@@ -72,8 +72,6 @@ fn squarify(
         row_sum,
         total,
         bounds,
-        w,
-        h,
         horizontal,
         result,
     );
@@ -139,11 +137,11 @@ fn layout_row(
     row_sum: f64,
     total: f64,
     bounds: Rect,
-    w: f64,
-    h: f64,
     horizontal: bool,
     result: &mut Vec<(usize, Rect)>,
 ) {
+    let w = bounds.width() as f64;
+    let h = bounds.height() as f64;
     if horizontal {
         let row_w = w * row_sum / total;
         let mut y = bounds.min.y as f64;
