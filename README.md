@@ -1,36 +1,21 @@
 # SpaceSnifferX
 
-A cross-platform disk space analyzer with real-time treemap visualization, inspired by [SpaceSniffer](http://www.uderzo.it/main_products/space_sniffer/).
+跨平台磁盘空间分析工具，采用实时 Treemap 可视化，灵感来自 [SpaceSniffer](http://www.uderzo.it/main_products/space_sniffer/)。
 
-## Features
+## 功能
 
-- **Treemap visualization** — directory contents rendered as nested rectangles proportional to file size (squarified treemap algorithm)
-- **Real-time scanning** — rectangles appear and grow as the scan progresses, no waiting for a progress bar to finish
-- **Directory drill-down** — click any rectangle to zoom into that directory; breadcrumb navigation to go back
-- **Context menu** — right-click any file/folder to **open in file manager** or **delete** (with confirmation)
-- **Color coding** — directories (blue), documents (red), code (green), images (purple), video (dark red), audio (blue-purple), archives (yellow), executables (gray), others (auto-hashed)
-- **Cross-platform** — Windows, macOS, Linux
-- **Embedded CJK font** — automatically loads system CJK fonts for Chinese/Japanese/Korean paths
-- **SVG window icon** — vector icon compiled into the binary
+- **Treemap 可视化** — 目录内容按文件大小比例渲染为嵌套矩形（squarified treemap 算法）
+- **实时扫描** — 矩形随扫描进度逐个出现并增长，无需等待进度条
+- **目录钻入** — 点击任意矩形进入子目录；面包屑导航返回上级
+- **右键菜单** — 右键点击文件/文件夹可**在文件管理器中定位**或**删除**（带确认对话框）
+- **颜色编码** — 目录（蓝色）、文档（红色）、代码（绿色）、图片（紫色）、视频（深红）、音频（蓝紫）、压缩包（黄色）、可执行文件（灰色）、其他（自动哈希着色）
+- **跨平台** — Windows、macOS、Linux
+- **内置 CJK 字体** — 自动加载系统 CJK 字体，中文/日文/韩文路径正常显示
+- **SVG 窗口图标** — 矢量图标编译进二进制
 
-## Screenshot
+## 构建
 
-```
-┌─────────────────────────────────────────────────┐
-│ SpaceSnifferX │ [/home/user] [Scan] [Browse...] │
-├─────────────────────────────────────────────────┤
-│ [■ Dir1    ] [■ Dir2        ] [■ Dir3 ]        │
-│ [6.2 GB   ] [■ Dir2.1     ]  [2.1GB ] [■  ...] │
-│             [■ Dir2.2 ] [■■■■■■■■File1■■■■■■■ ] │
-│             [1.8GB   ] [  3.5 GB              ] │
-├─────────────────────────────────────────────────┤
-│ Total: 45.2 GB │ ■Dir ■Doc ■Code ■Img ■Vid ..  │
-└─────────────────────────────────────────────────┘
-```
-
-## Building
-
-Requirements:
+环境要求：
 - Rust 1.80+
 - Cargo
 
@@ -40,53 +25,53 @@ cd spacesnifferx
 cargo build --release
 ```
 
-The binary will be at `target/release/spacesnifferx` (or `.exe` on Windows).
+编译产物位于 `target/release/spacesnifferx`（Windows 下为 `.exe`）。
 
-## Usage
+## 使用方式
 
-1. Launch the app — it starts idle showing a path input
-2. Type or **Browse...** to select a directory
-3. Click **Scan** — rectangles appear and grow in real time
-4. **Left-click** a directory rectangle to drill into it
-5. **Left-click** empty space to go up one level
-6. **Right-click** any rectangle for options:
-   - **Open file location** — reveals the file in your system file manager
-   - **Delete** — removes the file/folder (with confirmation dialog)
-7. Use the **breadcrumb bar** at the top to jump levels quickly
+1. 启动程序 — 初始为空闲状态，显示路径输入框
+2. 输入路径或点击 **Browse...** 选择目录
+3. 点击 **Scan** — 矩形实时出现并增长
+4. **左键** 点击目录矩形进入子目录
+5. **左键** 点击空白区域返回上级
+6. **右键** 点击任意矩形弹出菜单：
+   - **Open file location** — 在系统文件管理器中定位该文件
+   - **Delete** — 删除文件/文件夹（弹出确认对话框）
+7. 使用顶部的**面包屑导航**快速跳转层级
 
-### Recommended scan targets
+### 扫描建议
 
-For a quick demo, scan a project folder or `~/Documents`. Scanning your entire home directory may take longer but works fine.
+快速体验可扫描某个项目目录或 `~/Documents`。扫描整个用户主目录耗时较长但完全可以。
 
-## Project Structure
+## 项目结构
 
 ```
 spacesnifferx/
 ├── Cargo.toml
-├── build.rs                  # (unused, kept for future slint backend)
-├── icon.svg                  # vector window icon
+├── build.rs
+├── icon.svg                  # 矢量窗口图标
 ├── ui/
-│   └── main.slint            # Slint UI definition (experimental)
+│   └── main.slint            # Slint 声明式 UI（实验性）
 ├── src/
-│   ├── main.rs               # entry point, CJK font, icon loading
-│   ├── app.rs                # UI state, egui rendering, navigation
-│   ├── scanner.rs            # recursive directory scanner
-│   └── treemap.rs            # squarified treemap layout algorithm
+│   ├── main.rs               # 入口，CJK 字体加载，图标加载
+│   ├── app.rs                # UI 状态管理，egui 渲染，导航逻辑
+│   ├── scanner.rs            # 递归目录扫描器
+│   └── treemap.rs            # squarified treemap 布局算法
 ```
 
-### Key algorithms
+### 核心算法
 
-- **Squarified Treemap** (Bruls, Huizing, van Wijk) — produces rectangles with aspect ratios as close to 1:1 as possible
-- **Incremental scan** — scanner thread sends partial tree snapshots every 150ms for real-time rendering
+- **Squarified Treemap**（Bruls, Huizing, van Wijk）— 生成的矩形长宽比尽可能接近 1:1
+- **增量扫描** — 扫描线程每 150ms 发送部分树快照，实现实时渲染
 
-## Dependencies
+## 依赖
 
-| Crate | Purpose |
-|-------|---------|
-| `eframe` / `egui` | GUI framework (immediate mode) |
-| `rfd` | Native file/folder picker dialog |
-| `resvg` / `tiny-skia` | SVG icon rendering |
-| `walkdir` | (reserved for future optimized scanning) |
+| Crate | 用途 |
+|-------|------|
+| `eframe` / `egui` | GUI 框架（即时模式） |
+| `rfd` | 系统原生文件/目录选择对话框 |
+| `resvg` / `tiny-skia` | SVG 图标渲染 |
+| `walkdir` | （预留，用于后续优化扫描性能） |
 
 ## License
 
