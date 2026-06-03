@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, process::exit};
 
 pub fn format_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB", "PB"];
@@ -63,6 +63,7 @@ pub fn open_file_location(path: &Path) {
             .args(["-R", &path.display().to_string()])
             .spawn()
     } else {
+        println!("{}", path.as_os_str().to_str().unwrap());
         std::process::Command::new("xdg-open")
             .arg(path.as_os_str())
             .spawn()
