@@ -665,8 +665,9 @@ impl SpaceSnifferApp {
             .show(ctx, |ui| {
                 egui::Frame::popup(&ctx.style()).show(ui, |ui| {
                     ui.set_min_width(180.0);
-                    if ui.button("Open file location").clicked() {
-                        util::open_file_location(&path);
+                    let open_label = if is_dir { "Open folder" } else { "Open file location" };
+                    if ui.button(open_label).clicked() {
+                        util::open_file_location(&path, is_dir);
                         self.context_menu = None;
                     }
                     if ui

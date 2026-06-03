@@ -1,7 +1,8 @@
-use std::{path::Path, process::exit};
+use std::path::Path;
+use std::process::Command;
 
 pub fn format_size(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB", "PB"];
+    const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
     let mut size = bytes as f64;
     let mut unit_idx = 0;
 
@@ -52,20 +53,27 @@ pub fn dirs_or_home() -> String {
     }
 }
 
-pub fn open_file_location(path: &Path) {
+pub fn open_file_location(path: &Path, is_dir: bool) {
+    let target = if is_dir {
+        path.to_path_buf()
+    } else {
+        path.parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| path.to_path_buf())
+    };
+
     let result = if cfg!(target_os = "windows") {
-        std::process::Command::new("explorer")
-            .arg("/select,")
-            .arg(path.as_os_str())
+        Command::new("explorer")
+            .arg("/open,")
+            .arg(target.as_os_str())
             .spawn()
     } else if cfg!(target_os = "macos") {
-        std::process::Command::new("open")
-            .args(["-R", &path.display().to_string()])
+        Command::new("open")
+            .args(["-R", &target.display().to_string()])
             .spawn()
     } else {
-        println!("{}", path.as_os_str().to_str().unwrap());
-        std::process::Command::new("xdg-open")
-            .arg(path.as_os_str())
+        Command::new("xdg-open")
+            .arg(target.as_os_str())
             .spawn()
     };
     let _ = result;

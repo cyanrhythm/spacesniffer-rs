@@ -1,3 +1,5 @@
+//  #![windows_subsystem = "windows"]
+
 use std::sync::Arc;
 
 mod app;
@@ -6,7 +8,26 @@ mod scanner;
 mod treemap;
 mod util;
 
+#[cfg(windows)]
+fn hide_console_window() {
+    use std::ffi::c_int;
+    extern "system" {
+        fn GetConsoleWindow() -> isize;
+        fn ShowWindow(hwnd: isize, nCmdShow: c_int) -> c_int;
+    }
+    const SW_HIDE: c_int = 0;
+    unsafe {
+        let hwnd = GetConsoleWindow();
+        if hwnd != 0 {
+            ShowWindow(hwnd, SW_HIDE);
+        }
+    }
+}
+
 fn main() -> eframe::Result {
+    #[cfg(windows)]
+    hide_console_window();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
