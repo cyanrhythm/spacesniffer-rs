@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "A cross-platform disk space analyzer with treemap visualization"
 
+[build-dependencies]
+winres = "0.1"
+
 [dependencies]
 eframe = "0.31"
 egui = "0.31"

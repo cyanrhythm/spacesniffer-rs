@@ -47,7 +47,7 @@ fn main() -> eframe::Result {
 }
 
 fn load_icon() -> Arc<egui::IconData> {
-    let svg_data = include_bytes!("../icon.svg");
+    let svg_data = include_bytes!("../resources/icon.svg");
     let tree = resvg::usvg::Tree::from_data(svg_data, &resvg::usvg::Options::default())
         .expect("Failed to parse icon.svg");
     let size = tree.size();
