@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+
+  <!--
+    Monaco Nerd Font Mono 为主字体，MiSans 为回退字体。
+    当 Monaco Nerd Font Mono 中不存在某个字符（如中文）时，
+    fontconfig 会自动从 MiSans 中加载该字符。
+  -->
+  <alias>
+    <family>Monaco Nerd Font Mono</family>
+    <prefer>
+      <family>Monaco Nerd Font Mono</family>
+      <family>MiSans</family>
+    </prefer>
+  </alias>
+
+  <!-- 等宽字体也使用 Monaco Nerd Font Mono + MiSans 组合 -->
+  <alias>
+    <family>monospace</family>
+    <prefer>
+      <family>Monaco Nerd Font Mono</family>
+      <family>MiSans</family>
+    </prefer>
+  </alias>
+
+  <!-- 无衬线字体使用 MiSans -->
+  <alias>
+    <family>sans-serif</family>
+    <prefer>
+      <family>MiSans</family>
+    </prefer>
+  </alias>
+
+</fontconfig>

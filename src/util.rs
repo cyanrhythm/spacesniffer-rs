@@ -44,8 +44,7 @@ pub fn dirs_or_home() -> String {
     if cfg!(target_os = "windows") {
         std::env::var("USERPROFILE")
             .or_else(|_| {
-                std::env::var("HOMEDRIVE")
-                    .map(|d| if !d.ends_with('\\') { d + "\\" } else { d })
+                std::env::var("HOMEDRIVE").map(|d| if !d.ends_with('\\') { d + "\\" } else { d })
             })
             .unwrap_or_else(|_| "C:\\".to_string())
     } else {
@@ -63,10 +62,10 @@ pub fn open_file_location(path: &Path) {
         std::process::Command::new("open")
             .args(["-R", &path.display().to_string()])
             .spawn()
-    } else if let Some(parent) = path.parent() {
-        std::process::Command::new("xdg-open").arg(parent).spawn()
     } else {
-        return;
+        std::process::Command::new("xdg-open")
+            .arg(path.as_os_str())
+            .spawn()
     };
     let _ = result;
 }
