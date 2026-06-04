@@ -1,15 +1,18 @@
-#![windows_subsystem = "windows"]
-
+// #![windows_subsystem = "windows"]
+rust_i18n::i18n!("locales");
 use std::sync::Arc;
 
 mod app;
 mod colors;
+mod locales;
 mod scanner;
 mod treemap;
 mod util;
 
 
 fn main() -> eframe::Result {
+    locales::init();
+
     let options = eframe::NativeOptions {
         centered: true,
         viewport: egui::ViewportBuilder::default()

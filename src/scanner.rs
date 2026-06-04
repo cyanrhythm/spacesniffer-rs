@@ -6,6 +6,8 @@ use std::sync::{
 };
 use std::time::Instant;
 
+use rust_i18n::t;
+
 #[derive(Clone, Debug)]
 pub struct FileEntry {
     pub name: String,
@@ -86,7 +88,7 @@ pub fn start_scan(root_path: PathBuf, progress: Arc<Mutex<ScanProgress>>) {
                 if !cancelled.load(Ordering::Relaxed) {
                     p.phase = ScanPhase::Error(e.to_string());
                 } else {
-                    p.phase = ScanPhase::Error("Scan cancelled.".to_string());
+                    p.phase = ScanPhase::Error(t!("scan_cancelled_msg").as_ref().to_string());
                 }
             }
         }

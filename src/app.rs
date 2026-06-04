@@ -7,6 +7,7 @@ use crate::colors;
 use crate::scanner::{self, FileEntry, ScanPhase, ScanProgress};
 use crate::treemap;
 use crate::util;
+use rust_i18n::t;
 
 pub struct SpaceSnifferApp {
     scan_path: String,
@@ -300,12 +301,12 @@ impl eframe::App for SpaceSnifferApp {
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("SpaceSnifferX");
+                ui.heading(t!("landing_heading").as_ref());
                 ui.separator();
 
                 let path_edit = ui.add(
                     egui::TextEdit::singleline(&mut self.scan_path)
-                        .hint_text("Enter directory path...")
+                        .hint_text(t!("path_hint").as_ref())
                         .desired_width(300.0),
                 );
 
@@ -315,15 +316,15 @@ impl eframe::App for SpaceSnifferApp {
                     self.start_scan();
                 }
 
-                if ui.button("Scan").clicked() {
+                if ui.button(t!("scan_button").as_ref()).clicked() {
                     self.start_scan();
                 }
 
-                if ui.button("Cancel").clicked() {
+                if ui.button(t!("cancel_button").as_ref()).clicked() {
                     self.cancel_scan();
                 }
 
-                if ui.button("Browse...").clicked() {
+                if ui.button(t!("browse_button").as_ref()).clicked() {
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
                         self.scan_path = path.display().to_string();
                         self.start_scan();
@@ -349,8 +350,8 @@ impl SpaceSnifferApp {
                 let needs_retry = ui
                     .vertical_centered(|ui| {
                         ui.add_space(100.0);
-                        ui.colored_label(Color32::RED, format!("Error: {msg}"));
-                        ui.button("Retry").clicked()
+                        ui.colored_label(Color32::RED, t!("error_label", msg = &msg).as_ref());
+                        ui.button(t!("retry_button").as_ref()).clicked()
                     })
                     .inner;
                 if needs_retry {
@@ -389,14 +390,14 @@ impl SpaceSnifferApp {
                 if let Ok(p) = self.scan_progress.lock() {
                     ui.vertical_centered(|ui| {
                         ui.add_space(100.0);
-                        ui.heading("Scanning...");
+                        ui.heading(t!("scanning_heading").as_ref());
                         ui.add_space(10.0);
                         ui.label(format!(
                             "Files: {}  |  Dirs: {}",
                             p.files_processed, p.dirs_processed
                         ));
                         if !p.current_path.is_empty() {
-                            ui.label(format!("Current: {}", p.current_path));
+                            ui.label(t!("scanning_current", path = &p.current_path).as_ref());
                         }
                         ui.add_space(20.0);
                         ui.add(
@@ -411,11 +412,11 @@ impl SpaceSnifferApp {
 
             ui.vertical_centered(|ui| {
                 ui.add_space(100.0);
-                ui.heading("SpaceSnifferX");
+                ui.heading(t!("landing_heading").as_ref());
                 ui.add_space(10.0);
-                ui.label("Enter a directory path and click Scan to start analyzing.");
+                ui.label(t!("landing_instruction").as_ref());
                 ui.add_space(20.0);
-                if ui.button("Or Browse...").clicked() {
+                if ui.button(t!("landing_browse_button").as_ref()).clicked() {
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
                         self.scan_path = path.display().to_string();
                         self.start_scan();
@@ -445,7 +446,7 @@ impl SpaceSnifferApp {
             painter.text(
                 canvas_rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "(empty directory)",
+                t!("empty_directory").as_ref(),
                 egui::FontId::proportional(16.0),
                 Color32::GRAY,
             );
@@ -575,16 +576,16 @@ impl SpaceSnifferApp {
                 egui::Id::new("treemap_tooltip"),
                 |ui: &mut egui::Ui| {
                     ui.strong(&child.name);
-                    ui.label(format!("Size: {}", util::format_size(child.size)));
+                    ui.label(t!("tooltip_size", size = &util::format_size(child.size)).as_ref());
                     if child.is_dir {
-                        ui.label(format!("Type: Directory ({} items)", child.children.len()));
+                        ui.label(t!("tooltip_dir_type", items = child.children.len()).as_ref());
                     } else {
-                        ui.label("Type: File");
+                        ui.label(t!("tooltip_file_type").as_ref());
                         if let Some(ext) = child.path.extension().and_then(|e| e.to_str()) {
-                            ui.label(format!("Extension: .{ext}"));
+                            ui.label(t!("tooltip_extension", ext = ext).as_ref());
                         }
                     }
-                    ui.label(format!("Path: {}", child.path.display()));
+                    ui.label(t!("tooltip_path", path = &child.path.display().to_string()).as_ref());
                 },
             );
         }
@@ -603,7 +604,7 @@ impl SpaceSnifferApp {
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if let Some(root) = &self.root {
-                    ui.label(format!("Total: {}", util::format_size(root.size)));
+                    ui.label(t!("total_label", total = &util::format_size(root.size)).as_ref());
                 }
 
                 ui.separator();
@@ -614,25 +615,25 @@ impl SpaceSnifferApp {
                     .map(|p| p.skipped_dirs)
                     .unwrap_or(0);
                 if skipped > 0 {
-                    ui.label(format!("({skipped} dirs skipped)"));
+                    ui.label(t!("dirs_skipped_label", skipped = skipped).as_ref());
                     ui.separator();
                 }
 
                 ui.spacing_mut().item_spacing.x = 4.0;
-                render_legend_item(ui, Color32::from_rgb(70, 130, 180), "Dir");
-                render_legend_item(ui, Color32::from_rgb(200, 50, 50), "Doc");
-                render_legend_item(ui, Color32::from_rgb(80, 200, 120), "Code");
-                render_legend_item(ui, Color32::from_rgb(200, 100, 200), "Img");
-                render_legend_item(ui, Color32::from_rgb(220, 80, 80), "Vid");
-                render_legend_item(ui, Color32::from_rgb(100, 100, 220), "Aud");
-                render_legend_item(ui, Color32::from_rgb(200, 200, 80), "Arc");
-                render_legend_item(ui, Color32::from_rgb(160, 160, 160), "Exe");
-                render_legend_item(ui, Color32::from_rgb(140, 140, 140), "Oth");
+                render_legend_item(ui, Color32::from_rgb(70, 130, 180), t!("legend_dir").as_ref());
+                render_legend_item(ui, Color32::from_rgb(200, 50, 50), t!("legend_doc").as_ref());
+                render_legend_item(ui, Color32::from_rgb(80, 200, 120), t!("legend_code").as_ref());
+                render_legend_item(ui, Color32::from_rgb(200, 100, 200), t!("legend_img").as_ref());
+                render_legend_item(ui, Color32::from_rgb(220, 80, 80), t!("legend_vid").as_ref());
+                render_legend_item(ui, Color32::from_rgb(100, 100, 220), t!("legend_aud").as_ref());
+                render_legend_item(ui, Color32::from_rgb(200, 200, 80), t!("legend_arc").as_ref());
+                render_legend_item(ui, Color32::from_rgb(160, 160, 160), t!("legend_exe").as_ref());
+                render_legend_item(ui, Color32::from_rgb(140, 140, 140), t!("legend_oth").as_ref());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let node = self.current_node();
                     let count = node.map(|n| n.children.len()).unwrap_or(0);
-                    ui.label(format!("{count} items"));
+                    ui.label(t!("items_count_label", count = count).as_ref());
                 });
             });
         });
@@ -665,16 +666,14 @@ impl SpaceSnifferApp {
             .show(ctx, |ui| {
                 egui::Frame::popup(&ctx.style()).show(ui, |ui| {
                     ui.set_min_width(180.0);
-                    let open_label = if is_dir { "Open folder" } else { "Open file location" };
-                    if ui.button(open_label).clicked() {
+                    let open_label = if is_dir { t!("context_open_folder").to_string() } else { t!("context_open_file_location").to_string() };
+                    if ui.button(&open_label).clicked() {
                         util::open_file_location(&path, is_dir);
                         self.context_menu = None;
                     }
+                    let delete_label = if is_dir { t!("context_delete_folder").to_string() } else { t!("context_delete_file").to_string() };
                     if ui
-                        .button(format!(
-                            "Delete {}",
-                            if is_dir { "folder" } else { "file" }
-                        ))
+                        .button(&delete_label)
                         .clicked()
                     {
                         self.delete_confirm = Some(nav_path);
@@ -705,19 +704,17 @@ impl SpaceSnifferApp {
         };
 
         let mut show = true;
-        egui::Window::new("Confirm Delete")
+        egui::Window::new(t!("confirm_delete_title").as_ref())
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .open(&mut show)
             .show(ctx, |ui| {
                 ui.set_min_width(320.0);
-                ui.label(format!(
-                    "Are you sure you want to delete \"{entry_name}\"?\n\nThis action cannot be undone."
-                ));
+                ui.label(t!("confirm_delete_body", name = &entry_name));
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(t!("cancel_button").as_ref()).clicked() {
                         self.delete_confirm = None;
                     }
                     if ui
@@ -768,7 +765,7 @@ fn render_breadcrumbs(
     }
 
     for (i, name) in data.names.iter().enumerate().skip(1) {
-        ui.label(">");
+        ui.label(t!("breadcrumb_separator").as_ref());
         let is_last = i == data.names.len() - 1;
         if button(ui, name, is_last).clicked() && !is_last {
             let pop_count = data.names.len() - i - 1;
