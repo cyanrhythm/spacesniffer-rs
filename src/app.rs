@@ -765,7 +765,7 @@ fn render_breadcrumbs(
     }
 
     for (i, name) in data.names.iter().enumerate().skip(1) {
-        ui.label(t!("breadcrumb_separator").as_ref());
+        ui.label(r"/");
         let is_last = i == data.names.len() - 1;
         if button(ui, name, is_last).clicked() && !is_last {
             let pop_count = data.names.len() - i - 1;

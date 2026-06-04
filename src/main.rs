@@ -1,4 +1,4 @@
-// #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 rust_i18n::i18n!("locales");
 use std::sync::Arc;
 
