@@ -1,4 +1,4 @@
-//  #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 
 use std::sync::Arc;
 
@@ -8,27 +8,10 @@ mod scanner;
 mod treemap;
 mod util;
 
-#[cfg(windows)]
-fn hide_console_window() {
-    use std::ffi::c_int;
-    extern "system" {
-        fn GetConsoleWindow() -> isize;
-        fn ShowWindow(hwnd: isize, nCmdShow: c_int) -> c_int;
-    }
-    const SW_HIDE: c_int = 0;
-    unsafe {
-        let hwnd = GetConsoleWindow();
-        if hwnd != 0 {
-            ShowWindow(hwnd, SW_HIDE);
-        }
-    }
-}
 
 fn main() -> eframe::Result {
-    #[cfg(windows)]
-    hide_console_window();
-
     let options = eframe::NativeOptions {
+        centered: true,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
             .with_min_inner_size([640.0, 480.0])
@@ -71,10 +54,9 @@ fn configure_cjk_font(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
     if let Some(data) = try_load_cjk_font() {
-        fonts.font_data.insert(
-            "cjk".to_owned(),
-            egui::FontData::from_owned(data).into(),
-        );
+        fonts
+            .font_data
+            .insert("cjk".to_owned(), egui::FontData::from_owned(data).into());
         fonts
             .families
             .entry(egui::FontFamily::Proportional)
