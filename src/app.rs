@@ -335,10 +335,10 @@ impl eframe::App for SpaceSnifferApp {
             });
         });
 
-        self.render_treemap_area(ctx, is_scanning);
-        self.render_bottom_panel(ctx);
         self.render_context_menu(ctx);
         self.render_delete_confirm(ctx);
+        self.render_treemap_area(ctx, is_scanning);
+        self.render_bottom_panel(ctx);
     }
 }
 
