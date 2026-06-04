@@ -1,4 +1,4 @@
-# SpaceSnifferX
+# SpaceSniffer-RS
 
 跨平台磁盘空间分析工具，采用实时 Treemap 可视化，灵感来自 [SpaceSniffer](http://www.uderzo.it/main_products/space_sniffer/)。
 
@@ -20,12 +20,12 @@
 - Cargo
 
 ```bash
-git clone https://github.com/user/spacesnifferx.git
-cd spacesnifferx
+git clone https://github.com/user/spacesniffer-rs.git
+cd spacesniffer-rs
 cargo build --release
 ```
 
-编译产物位于 `target/release/spacesnifferx`（Windows 下为 `.exe`）。
+编译产物位于 `target/release/spacesniffer-rs`（Windows 下为 `.exe`）。
 
 ## 使用方式
 
@@ -46,7 +46,7 @@ cargo build --release
 ## 项目结构
 
 ```
-spacesnifferx/
+spacesniffer-rs/
 ├── Cargo.toml
 ├── build.rs
 ├── icon.svg                  # 矢量窗口图标

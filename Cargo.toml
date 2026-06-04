@@ -1,5 +1,5 @@
 [package]
-name = "spacesnifferx"
+name = "spacesniffer-rs"
 version = "0.1.0"
 edition = "2021"
 description = "A cross-platform disk space analyzer with treemap visualization"

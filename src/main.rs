@@ -23,7 +23,7 @@ fn main() -> eframe::Result {
     };
 
     eframe::run_native(
-        "SpaceSnifferX",
+        "SpaceSniffer-RS",
         options,
         Box::new(|cc| {
             configure_cjk_font(&cc.egui_ctx);
