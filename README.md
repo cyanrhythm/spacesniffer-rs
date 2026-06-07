@@ -20,7 +20,7 @@
 - Cargo
 
 ```bash
-git clone https://github.com/user/spacesniffer-rs.git
+git clone https://gitee.com/purplesakura/spacesniffer-rs
 cd spacesniffer-rs
 cargo build --release
 ```
