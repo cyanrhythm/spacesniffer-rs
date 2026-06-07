@@ -743,6 +743,17 @@ fn render_legend_item(ui: &mut egui::Ui, color: Color32, label: &str) {
     ui.label(label);
 }
 
+#[cfg(target_os = "windows")]
+fn get_separator() -> &'static str {
+    r"\"
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_separator() -> &'static str {
+    r"/"
+}
+
+
 fn render_breadcrumbs(
     ui: &mut egui::Ui,
     data: &BreadcrumbSnapshot,
@@ -765,7 +776,7 @@ fn render_breadcrumbs(
     }
 
     for (i, name) in data.names.iter().enumerate().skip(1) {
-        ui.label(r"/");
+        ui.label(get_separator());
         let is_last = i == data.names.len() - 1;
         if button(ui, name, is_last).clicked() && !is_last {
             let pop_count = data.names.len() - i - 1;

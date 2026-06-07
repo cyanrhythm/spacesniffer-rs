@@ -2,6 +2,9 @@
 rust_i18n::i18n!("locales");
 use std::sync::Arc;
 
+#[cfg(embedded_font)]
+const EMBEDDED_FONT: &[u8] = include_bytes!("../fonts/YaHeiMonacoHybrid.ttf");
+
 mod app;
 mod colors;
 mod locales;
@@ -71,6 +74,11 @@ fn configure_cjk_font(ctx: &egui::Context) {
 }
 
 fn try_load_cjk_font() -> Option<Vec<u8>> {
+    #[cfg(embedded_font)]
+    {
+        return Some(EMBEDDED_FONT.to_vec());
+    }
+
     let paths: &[&str] = if cfg!(target_os = "windows") {
         &[
             "C:\\Windows\\Fonts\\msyh.ttc",
