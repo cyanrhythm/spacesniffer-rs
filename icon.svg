@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <!-- 背景渐变 -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1565c0;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0d47a1;stop-opacity:1" />
+    </linearGradient>
+    <!-- 柱子渐变1 -->
+    <linearGradient id="barGrad1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#82b1ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#448aff;stop-opacity:1" />
+    </linearGradient>
+    <!-- 柱子渐变2 -->
+    <linearGradient id="barGrad2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#64b5f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e88e5;stop-opacity:1" />
+    </linearGradient>
+    <!-- 柱子渐变3 -->
+    <linearGradient id="barGrad3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#42a5f5;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0d47a1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角方形背景底板 -->
+  <rect x="5" y="5" width="110" height="110" rx="24" ry="24" fill="url(#bgGrad)"/>
+
+  <!-- 柱状图组 - 优化间距和比例 -->
+  <!-- 柱子1（矮）x=27, y=65, w=16, h=25 -->
+  <rect x="27" y="65" width="16" height="25" rx="4" fill="url(#barGrad1)"/>
+  
+  <!-- 柱子2（中）x=49, y=50, w=16, h=40 -->
+  <rect x="49" y="50" width="16" height="40" rx="4" fill="url(#barGrad2)"/>
+  
+  <!-- 柱子3（高）x=71, y=35, w=16, height=55 -->
+  <rect x="71" y="35" width="16" height="55" rx="4" fill="url(#barGrad3)"/>
+
+  <!-- 趋势线 - 精确连接三个柱子的顶部中点 -->
+  <!-- 柱子1中点 x=35, y=65 -->
+  <!-- 柱子2中点 x=57, y=50 -->
+  <!-- 柱子3中点 x=79, y=35 -->
+  <polyline points="35,65 57,50 79,35" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 箭头 - 放在趋势线末端 -->
+  <polygon points="79,35 73,42 85,42" fill="#ffffff"/>
+
+  <!-- 圆点标记 - 精确对齐 -->
+  <circle cx="35" cy="65" r="4" fill="#ffffff"/>
+  <circle cx="57" cy="50" r="4" fill="#ffffff"/>
+  <circle cx="79" cy="35" r="4" fill="#ffffff"/>
+</svg>
