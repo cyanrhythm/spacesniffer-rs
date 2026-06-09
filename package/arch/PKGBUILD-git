@@ -1,0 +1,48 @@
+# Maintainer: Your Name <your.email@example.com>
+# 开发版 PKGBUILD — 直接从 git 仓库克隆，无需 tag，始终构建最新提交
+
+pkgname=spacesniffer-rs-git
+pkgver=0.1.0.r19.41fcf92
+pkgrel=1
+pkgdesc="A cross-platform disk space analyzer with treemap visualization (git version)"
+arch=('x86_64')
+url="https://gitee.com/purplesakura/spacesniffer-rs"
+license=('MIT')
+depends=('gcc-libs')
+makedepends=('cargo' 'git')
+provides=('spacesniffer-rs')
+conflicts=('spacesniffer-rs')
+source=("spacesniffer-rs::git+${url}.git"
+        "spacesniffer-rs.desktop")
+sha256sums=('SKIP'
+            'SKIP')
+
+pkgver() {
+  cd "${srcdir}/spacesniffer-rs"
+  local _ver
+  _ver=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
+  if [ -z "$_ver" ]; then
+    printf "0.1.0.r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  else
+    echo "$_ver"
+  fi
+}
+
+build() {
+  cd "${srcdir}/spacesniffer-rs"
+  export CARGO_TARGET_DIR="${srcdir}/target"
+  cargo build --release --locked
+}
+
+package() {
+  cd "${srcdir}/spacesniffer-rs"
+
+  install -Dm755 "${CARGO_TARGET_DIR:-${srcdir}/target}/release/spacesniffer-rs" \
+    "${pkgdir}/usr/bin/spacesniffer-rs"
+
+  install -Dm644 "resources/icon.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/spacesniffer-rs.svg"
+
+  install -Dm644 "${srcdir}/spacesniffer-rs.desktop" \
+    "${pkgdir}/usr/share/applications/spacesniffer-rs.desktop"
+}

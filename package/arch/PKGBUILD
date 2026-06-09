@@ -1,0 +1,37 @@
+# Maintainer: Your Name <your.email@example.com>
+# 正式发布版 PKGBUILD — 需要先创建 git tag（如 git tag v0.1.0）并推送到远程仓库
+
+_pkgbase=spacesniffer-rs
+pkgname=${_pkgbase}
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="A cross-platform disk space analyzer with treemap visualization"
+arch=('x86_64')
+url="https://gitee.com/purplesakura/spacesniffer-rs"
+license=('MIT')
+depends=('gcc-libs')
+makedepends=('cargo')
+# https://gitee.com/purplesakura/spacesniffer-rs/archive/refs/tags/v0.2.0.tar.gz
+source=("${_pkgbase}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
+        "${_pkgbase}.desktop")
+sha256sums=('SKIP'
+            'SKIP')
+
+build() {
+  cd "${srcdir}/${_pkgbase}"
+  export CARGO_TARGET_DIR="${srcdir}/target"
+  cargo build --release --locked
+}
+
+package() {
+  cd "${srcdir}/${_pkgbase}"
+
+  install -Dm755 "${CARGO_TARGET_DIR:-${srcdir}/target}/release/${_pkgbase}" \
+    "${pkgdir}/usr/bin/${_pkgbase}"
+
+  install -Dm644 "resources/icon.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/${_pkgbase}.svg"
+
+  install -Dm644 "${srcdir}/${_pkgbase}.desktop" \
+    "${pkgdir}/usr/share/applications/${_pkgbase}.desktop"
+}
