@@ -2,8 +2,13 @@
 rust_i18n::i18n!("locales");
 use std::sync::Arc;
 
-#[cfg(embedded_font)]
-const EMBEDDED_FONT: &[u8] = include_bytes!("../fonts/YaHeiMonacoHybrid.ttf");
+
+#[macro_export]
+macro_rules! resources {
+    ($path:expr) => {
+        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/", $path))
+    };
+}
 
 mod app;
 mod colors;
@@ -36,7 +41,7 @@ fn main() -> eframe::Result {
 }
 
 fn load_icon() -> Arc<egui::IconData> {
-    let svg_data = include_bytes!("../resources/icon.svg");
+    let svg_data = resources!("icons/icon.svg");
     let tree = resvg::usvg::Tree::from_data(svg_data, &resvg::usvg::Options::default())
         .expect("Failed to parse icon.svg");
     let size = tree.size();
@@ -76,7 +81,7 @@ fn configure_cjk_font(ctx: &egui::Context) {
 fn try_load_cjk_font() -> Option<Vec<u8>> {
     #[cfg(embedded_font)]
     {
-        return Some(EMBEDDED_FONT.to_vec());
+        return Some(resources!("fonts/YaHeiMonacoHybrid.ttf").to_vec());
     }
 
     let paths: &[&str] = if cfg!(target_os = "windows") {
