@@ -64,7 +64,7 @@ pub fn open_file_location(path: &Path, is_dir: bool) {
 
     let result = if cfg!(target_os = "windows") {
         Command::new("explorer")
-            .arg(if is_dir {"/open,"} else {"/select,"} )
+            .arg(if is_dir { "/open," } else { "/select," })
             .arg(path.as_os_str())
             .stdin(Stdio::null()) // 显式禁用标准流
             .stdout(Stdio::null())
