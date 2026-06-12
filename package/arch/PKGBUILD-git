@@ -2,20 +2,18 @@
 # 开发版 PKGBUILD — 直接从 git 仓库克隆，无需 tag，始终构建最新提交
 
 pkgname=spacesniffer-rs-git
-pkgver=0.1.0.r19.41fcf92
+pkgver=0.1.0.r28.5b7b77d
 pkgrel=1
 pkgdesc="A cross-platform disk space analyzer with treemap visualization (git version)"
 arch=('x86_64')
 url="https://gitee.com/purplesakura/spacesniffer-rs"
 license=('MIT')
 depends=('gcc-libs')
-makedepends=('cargo' 'git')
+makedepends=('git')
 provides=('spacesniffer-rs')
 conflicts=('spacesniffer-rs')
-source=("spacesniffer-rs::git+${url}.git"
-        "spacesniffer-rs.desktop")
-sha256sums=('SKIP'
-            'SKIP')
+source=("spacesniffer-rs::git+${url}.git")
+sha256sums=('SKIP')
 
 pkgver() {
   cd "${srcdir}/spacesniffer-rs"
@@ -40,7 +38,7 @@ package() {
   install -Dm755 "${CARGO_TARGET_DIR:-${srcdir}/target}/release/spacesniffer-rs" \
     "${pkgdir}/usr/bin/spacesniffer-rs"
 
-  install -Dm644 "resources/icon.svg" \
+  install -Dm644 "resources/icons/icon.svg" \
     "${pkgdir}/usr/share/icons/hicolor/scalable/apps/spacesniffer-rs.svg"
 
   install -Dm644 "resources/spacesniffer-rs.desktop" \
