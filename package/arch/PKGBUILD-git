@@ -43,6 +43,6 @@ package() {
   install -Dm644 "resources/icon.svg" \
     "${pkgdir}/usr/share/icons/hicolor/scalable/apps/spacesniffer-rs.svg"
 
-  install -Dm644 "${srcdir}/spacesniffer-rs.desktop" \
+  install -Dm644 "resources/spacesniffer-rs.desktop" \
     "${pkgdir}/usr/share/applications/spacesniffer-rs.desktop"
 }
