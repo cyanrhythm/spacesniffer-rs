@@ -16,7 +16,7 @@ source=("spacesniffer-rs::git+${url}.git")
 sha256sums=('SKIP')
 
 pkgver() {
-  cd "${srcdir}/spacesniffer-rs"
+  cd "${srcdir}/spacesniffer-rs"  || exit 1
   local _ver
   _ver=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
   if [ -z "$_ver" ]; then
@@ -27,13 +27,13 @@ pkgver() {
 }
 
 build() {
-  cd "${srcdir}/spacesniffer-rs"
+  cd "${srcdir}/spacesniffer-rs" || exit 1
   export CARGO_TARGET_DIR="${srcdir}/target"
   cargo build --release --locked
 }
 
 package() {
-  cd "${srcdir}/spacesniffer-rs"
+  cd "${srcdir}/spacesniffer-rs" || exit 1
 
   install -Dm755 "${CARGO_TARGET_DIR:-${srcdir}/target}/release/spacesniffer-rs" \
     "${pkgdir}/usr/bin/spacesniffer-rs"
