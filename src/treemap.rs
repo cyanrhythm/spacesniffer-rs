@@ -80,19 +80,19 @@ fn squarify(
     let remaining_total = total - row_sum;
     let remaining_rect = if horizontal {
         let row_w = w * row_sum / total;
-        Rect::from_min_max(
-            pos2(bounds.min.x + row_w as f32, bounds.min.y),
-            bounds.max,
-        )
+        Rect::from_min_max(pos2(bounds.min.x + row_w as f32, bounds.min.y), bounds.max)
     } else {
         let row_h = h * row_sum / total;
-        Rect::from_min_max(
-            pos2(bounds.min.x, bounds.min.y + row_h as f32),
-            bounds.max,
-        )
+        Rect::from_min_max(pos2(bounds.min.x, bounds.min.y + row_h as f32), bounds.max)
     };
 
-    squarify(sorted, start + row_end, remaining_rect, remaining_total, result);
+    squarify(
+        sorted,
+        start + row_end,
+        remaining_rect,
+        remaining_total,
+        result,
+    );
 }
 
 fn row_aspect_ratio(
