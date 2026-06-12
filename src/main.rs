@@ -23,6 +23,7 @@ fn main() -> eframe::Result {
 
     let options = eframe::NativeOptions {
         centered: true,
+        renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
             .with_min_inner_size([640.0, 480.0])
