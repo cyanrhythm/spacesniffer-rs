@@ -1,21 +1,43 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+/// 1024 进制的可读大小。
+///
+/// 规则：
+/// - 整数不带小数点（`1023 MiB`、`1 GiB`）；
+/// - 四舍五入后如果顶到 1024，就进位到下一个单位
+///   （`1023.96 MiB` → `1 GiB`，而不是 `1024.0 MiB`）；
+/// - 非整数保留一位小数（`1.5 KiB`）。
 pub fn format_size(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
-    let mut size = bytes as f64;
-    let mut unit_idx = 0;
+    const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
 
-    while size >= 1024.0 && unit_idx < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit_idx += 1;
+    let mut unit = 0usize;
+    let mut value = bytes as f64;
+
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
     }
 
-    if unit_idx == 0 {
-        format!("{} {}", bytes, UNITS[unit_idx])
+    // 先按一位小数四舍五入，再看是否该进位。
+    loop {
+        let rounded = (value * 10.0).round() / 10.0;
+        if rounded >= 1024.0 && unit + 1 < UNITS.len() {
+            value = rounded / 1024.0;
+            unit += 1;
+            continue;
+        }
+        value = rounded;
+        break;
+    }
+
+    let number = if value.fract() == 0.0 {
+        format!("{}", value as u64)
     } else {
-        format!("{:.1} {}", size, UNITS[unit_idx])
-    }
+        format!("{value:.1}")
+    };
+
+    format!("{number} {}", UNITS[unit])
 }
 
 pub fn truncate_name(name: &str, max_chars: usize) -> String {
@@ -81,4 +103,56 @@ pub fn open_file_location(path: &Path, is_dir: bool) {
         Command::new("xdg-open").arg(target.as_os_str()).spawn()
     };
     let _ = result;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const KIB: u64 = 1024;
+    const MIB: u64 = KIB * 1024;
+    const GIB: u64 = MIB * 1024;
+
+    #[test]
+    fn small_sizes_stay_in_bytes() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(1023), "1023 B");
+    }
+
+    #[test]
+    fn whole_numbers_have_no_decimal_point() {
+        assert_eq!(format_size(1023 * MIB), "1023 MiB");
+        assert_eq!(format_size(GIB), "1 GiB");
+        assert_eq!(format_size(1024), "1 KiB");
+    }
+
+    #[test]
+    fn fractions_keep_one_decimal() {
+        assert_eq!(format_size(1536), "1.5 KiB");
+        assert_eq!(format_size(1023 * MIB + MIB / 2), "1023.5 MiB");
+    }
+
+    /// 关键规则：四舍五入顶到 1024 就进位，而不是显示 `1024.0 MiB`。
+    #[test]
+    fn rounding_carries_into_the_next_unit() {
+        // 1 MiB - 1 字节 ≈ 1023.999 KiB
+        assert_eq!(format_size(MIB - 1), "1 MiB");
+        // 1 GiB - 1 字节 ≈ 1023.999 MiB
+        assert_eq!(format_size(GIB - 1), "1 GiB");
+        // 1 TiB - 1 字节
+        assert_eq!(format_size(GIB * 1024 - 1), "1 TiB");
+        // 正好 1024 MiB
+        assert_eq!(format_size(1024 * MIB), "1 GiB");
+    }
+
+    #[test]
+    fn top_unit_does_not_overflow() {
+        assert_eq!(format_size(u64::MAX), "16 EiB");
+    }
+
+    #[test]
+    fn truncate_keeps_short_names_and_marks_long_ones() {
+        assert_eq!(truncate_name("abc", 10), "abc");
+        assert_eq!(truncate_name("abcdefghij", 6), "abcd..");
+    }
 }

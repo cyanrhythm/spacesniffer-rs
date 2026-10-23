@@ -22,7 +22,7 @@ mod treemap;
 mod util;
 mod views;
 
-use crate::gpui::{AppContext as _, TitlebarOptions, WindowBounds, WindowOptions, px, size};
+use crate::gpui::{px, size, AppContext as _, TitlebarOptions, WindowBounds, WindowOptions};
 
 fn main() {
     locales::init();

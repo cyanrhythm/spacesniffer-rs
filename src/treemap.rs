@@ -100,7 +100,14 @@ fn squarify(
         row_sum = items[0].1;
     }
 
-    layout_row(&items[..row_end], row_sum, total, bounds, horizontal, result);
+    layout_row(
+        &items[..row_end],
+        row_sum,
+        total,
+        bounds,
+        horizontal,
+        result,
+    );
 
     // 剩余元素在剩下的空间里递归布局。
     let remaining_total = total - row_sum;
@@ -112,7 +119,13 @@ fn squarify(
         RectF::new(bounds.x, bounds.y + row_h, bounds.w, bounds.h - row_h)
     };
 
-    squarify(sorted, start + row_end, remaining_rect, remaining_total, result);
+    squarify(
+        sorted,
+        start + row_end,
+        remaining_rect,
+        remaining_total,
+        result,
+    );
 }
 
 fn row_aspect_ratio(
@@ -233,7 +246,10 @@ mod tests {
             .iter()
             .map(|(_, b)| b.size.width.as_f32() * b.size.height.as_f32())
             .sum();
-        assert!((total_area - 10_000.0).abs() < 1.0, "total area {total_area}");
+        assert!(
+            (total_area - 10_000.0).abs() < 1.0,
+            "total area {total_area}"
+        );
 
         for (idx, rect) in &rects {
             let weight = items.iter().find(|(i, _)| i == idx).unwrap().1 as f32;

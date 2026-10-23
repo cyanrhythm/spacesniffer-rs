@@ -3,6 +3,8 @@ name = "spacesniffer-rs"
 version = "0.1.0"
 edition = "2021"
 description = "A cross-platform disk space analyzer with treemap visualization"
+license = "MIT"
+repository = "https://gitee.com/purplesakura/spacesniffer-rs"
 
 [build-dependencies]
 winres = "0.1"

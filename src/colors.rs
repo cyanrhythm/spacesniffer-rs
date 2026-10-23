@@ -142,14 +142,8 @@ mod tests {
 
     #[test]
     fn known_extensions_are_stable() {
-        assert!(same(
-            color_for_extension("rs"),
-            color_for_extension("rs")
-        ));
-        assert!(!same(
-            color_for_extension("rs"),
-            color_for_extension("png")
-        ));
+        assert!(same(color_for_extension("rs"), color_for_extension("rs")));
+        assert!(!same(color_for_extension("rs"), color_for_extension("png")));
     }
 
     #[test]

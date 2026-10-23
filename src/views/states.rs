@@ -1,12 +1,11 @@
 //! 主区域的三种空状态：欢迎页、扫描中、出错。
 
-use crate::gpui::{self, 
-    prelude::FluentBuilder as _, px, AnyElement, Context, IntoElement, ParentElement as _, Styled as _, Window};
+use crate::gpui::{
+    self, prelude::FluentBuilder as _, px, AnyElement, Context, IntoElement, ParentElement as _,
+    Styled as _, Window,
+};
 use gpui_kit::component::{
-    button::{Button, ButtonVariants as _},
-    progress::Progress,
-    spinner::Spinner,
-    ActiveTheme as _, Sizable as _, StyledExt as _,
+    progress::Progress, spinner::Spinner, ActiveTheme as _, Sizable as _, StyledExt as _,
 };
 use rust_i18n::t;
 
@@ -39,10 +38,12 @@ pub(crate) fn landing_state(
                 .child(t!("landing_instruction").to_string()),
         )
         .child(
-            Button::new("landing-browse")
-                .primary()
-                .label(t!("landing_browse_button").to_string())
-                .on_click(cx.listener(|this, _, window, cx| this.browse_for_folder(window, cx))),
+            super::cta_button(
+                "landing-browse",
+                t!("landing_browse_button").to_string(),
+                cx,
+            )
+            .on_click(cx.listener(|this, _, window, cx| this.browse_for_folder(window, cx))),
         )
         .into_any_element()
 }
@@ -66,9 +67,14 @@ pub(crate) fn scanning_state(
                 .child(t!("scanning_heading").to_string()),
         )
         .child(
-            gpui::div()
-                .text_color(muted)
-                .child(t!("scanning_files_dirs", files = stats.files, dirs = stats.dirs).to_string()),
+            gpui::div().text_color(muted).child(
+                t!(
+                    "scanning_files_dirs",
+                    files = stats.files,
+                    dirs = stats.dirs
+                )
+                .to_string(),
+            ),
         )
         .when(!stats.current_path.is_empty(), |this| {
             this.child(
@@ -108,9 +114,7 @@ pub(crate) fn error_state(
                 .child(t!("error_label", msg = &message).to_string()),
         )
         .child(
-            Button::new("retry")
-                .primary()
-                .label(t!("retry_button").to_string())
+            super::cta_button("retry", t!("retry_button").to_string(), cx)
                 .on_click(cx.listener(|this, _, window, cx| this.retry(window, cx))),
         )
         .into_any_element()
@@ -128,9 +132,14 @@ pub(crate) fn scanning_badge(app: &SpaceSnifferApp) -> AnyElement {
                 .items_center()
                 .child(Spinner::new().small())
                 .child(
-                    gpui::div()
-                        .text_xs()
-                        .child(t!("scanning_files_dirs", files = stats.files, dirs = stats.dirs).to_string()),
+                    gpui::div().text_xs().child(
+                        t!(
+                            "scanning_files_dirs",
+                            files = stats.files,
+                            dirs = stats.dirs
+                        )
+                        .to_string(),
+                    ),
                 ),
         )
         .into_any_element()

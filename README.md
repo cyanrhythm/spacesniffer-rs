@@ -1,31 +1,43 @@
 # SpaceSniffer-RS
 
-跨平台磁盘空间分析工具，实时 Treemap 可视化，灵感来自 [SpaceSniffer](http://www.uderzo.it/main_products/space_sniffer/)。
+SpaceSniffer-RS 是一个跨平台磁盘空间分析工具，使用实时 Treemap 可视化，灵感来自 [SpaceSniffer](http://www.uderzo.it/main_products/space_sniffer/).
+
+<div align="center">
+[![License: MIT](https://img.shields.io/badge/license-MIT-3da639.svg)](./LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.92%2B-dea584?logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![GUI: GPUI Kit](https://img.shields.io/badge/GUI-GPUI%20Kit-4c8df6)](https://gpui-kit.com)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-6e7681)](#构建)
+[![i18n](https://img.shields.io/badge/i18n-zh--CN%20%7C%20en-8957e5)](./locales)
+![VERSION](https://img.shields.io/badge/version-1.0.0-green)
+
+
 
 GUI 层基于 **[GPUI Kit](https://gpui-kit.com)**（GPUI + GPUI Component 组件库）；本项目此前使用的是 egui/eframe，已完成整体迁移。
 
-![Treemap 视图](document/screenshot-treemap.png)
+![Treemap 视图](doc/screenshot-treemap.png)
+
+</div>
 
 ## 功能
 
 - **Treemap 可视化** — 目录内容按文件大小比例渲染为嵌套矩形（squarified treemap 算法）
-- **实时扫描** — 矩形随扫描进度逐块出现并增长，无需等待进度条
+- **实时扫描** — 扫描过程中界面持续刷新：顶层条目逐个出现，子目录扫完即补齐（无需等整个扫描结束）
 - **目录钻入** — 点击矩形进入子目录；面包屑导航或点击空白处返回上级
-- **悬停信息卡** — 指针悬停格子时显示名称、大小、类型（目录条目数 / 扩展名）与完整路径
+- **悬停信息卡** — 跟随指针显示名称、大小、类型（目录条目数 / 扩展名 / 符号链接）与完整路径，靠近窗口边缘时自动翻转
 - **右键菜单** — 定位到文件管理器，或删除（删除前有独立确认对话框）
 - **颜色编码** — 目录（蓝色，明度按名字微调）、文档（红）、代码（绿）、图片（品红）、视频（深红）、音频（靛蓝）、压缩包（黄）、可执行（灰）、其他（按扩展名哈希着色）
-- **智能文字色** — 按格子背景亮度自动选黑/白标签，窄格子自动截断
+- **格子标签** — 名字 + 大小两行居中；大小按 1024 进制且会进位（`1024 MiB` 显示为 `1 GiB`，整数不带小数点）；窄格子截断名字，大小放不下就不画；文字色按背景亮度自动选黑/白
 - **状态栏** — 总占用、跳过目录数、颜色图例、当前层条目数
-- **跟随系统深浅色** — 启动时读取窗口外观并应用对应主题
+- **跟随系统深浅色** — 启动时读取窗口外观并应用对应主题；深色下主按钮用深色表面而非亮白填充
 - **跨平台** — Windows、macOS、Linux
-- **CJK 字体** — 编译期可用则内嵌，否则回退系统 CJK 字体；画布自绘文本显式声明 CJK 回退族
+- **CJK 字体** — 优先内嵌（族名取自字体真实 name 表，注册后再回查确认），否则回退系统 CJK 字体；画布自绘文本通过 `Font::fallbacks` 声明 CJK 回退族（由平台后端消费，Windows 走 DirectWrite）
 - **命令行** — `spacesniffer-rs [PATH]` 可直接扫描指定目录
 
 ## 构建
 
 环境要求：
 
-- Rust 1.85+（依赖使用 edition 2024）
+- Rust 1.92+（`Cargo.lock` 中 Linux 侧的 `oo7` 要求 1.92，低于此版本 Linux 构建会失败）
 - 支持 DirectX（Windows）/ Metal（macOS）/ Vulkan + X11 或 Wayland（Linux）的 GPU 环境
 
 ```bash
@@ -67,11 +79,12 @@ spacesniffer-rs D:\Projects
 spacesniffer-rs/
 ├── Cargo.toml
 ├── build.rs                  # Windows 图标资源 + CJK 字体内嵌开关
+├── LICENSE                   # MIT
 ├── resources/
 │   ├── fonts/                # 可选：编译进二进制的 CJK 字体
 │   └── icons/                # 应用图标（打包/资源用）
 ├── locales/                  # en / zh-CN 文案
-├── document/                 # 截图与 GPUI Kit API 速查（含源码行号实证）
+├── doc/                      # 截图与 GPUI Kit API 速查（含源码行号实证）
 └── src/
     ├── main.rs               # 入口：GPUI Kit 初始化、窗口、资源与字体注册
     ├── app.rs                # 应用状态机：扫描调度、导航、命中测试、删除、Render
@@ -105,7 +118,7 @@ spacesniffer-rs/
 - **祖先链检测** — Unix 上维护 `(dev, ino)` 祖先表，`mount --bind /a /a/b` 这种真目录环一旦绕回祖先就只留空占位、不再展开；
 - **深度上限** — 递归最多 256 层，异常深的树不会把栈吃穿。
 
-被跳过的目录计入状态栏的「跳过 N 个目录」。两个限制值得知道：0 字节的条目（空文件、Windows 目录联接）在 treemap 里不占面积；硬链接在 Linux 上会被各自的父目录各计一次（与 `du` 默认行为一致）。
+被跳过的目录计入状态栏的「跳过 N 个目录」。0 字节的条目（空目录、空文件、Windows 目录联接）会分到一小块保底面积（单个最多 0.4%，全部合计最多 10%），否则它们既看不见也点不到；空目录可以直接点进去，进去后显示「(空目录)」，点空白处返回。已知限制：硬链接在 Linux 上会被各自的父目录各计一次（与 `du` 默认行为一致）。
 
 
 ## 依赖
@@ -131,8 +144,53 @@ spacesniffer-rs/
 | 轮询 `request_repaint_after` | `cx.spawn` + `background_executor().timer` |
 | `rfd::FileDialog` | `cx.prompt_for_paths` |
 
-`document/` 下留了两份 API 速查（gpui-component 0.8.0、gpui-pre 0.3.9 绘制层），每条都带本地源码行号，升级版本时可对照排查。
+`doc/` 下留了两份 API 速查（gpui-component 0.8.0、gpui-pre 0.3.9 绘制层），每条都带本地源码行号，升级版本时可对照排查。
 
 ## License
 
-MIT
+本项目以 **MIT License** 发布，版权归 Purple桜 所有，许可证全文见 [LICENSE](./LICENSE)。
+
+简单说，MIT 允许你：**自由使用、修改、再发布、商用、闭源分发**，唯一义务是保留版权声明和许可声明；同时作者不对软件的任何后果负责（无担保）。
+
+<details>
+<summary><b>展开查看 MIT 许可证全文</b></summary>
+
+```text
+MIT License
+
+Copyright (c) 2026 Purple桜 <alicecats@qq.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>
+
+### 第三方组件
+
+本项目自身代码为 MIT，运行时依赖的组件按其各自许可证分发，均与本项目兼容：
+
+| 组件 | 许可证 | 说明 |
+|---|---|---|
+| [GPUI Kit](https://gpui-kit.com) / GPUI / GPUI Component | Apache-2.0 | GUI 框架与组件库 |
+| [Lucide](https://lucide.dev) 图标 | ISC | 经 `gpui-kit-assets` 打包进可执行文件 |
+| [rust-i18n](https://github.com/longbridge/rust-i18n) | MIT | 国际化 |
+| 内嵌字体 `YaHei Monaco Hybrid` | 随项目分发 | 见 `resources/fonts/`；再次分发时请确认字体本身的授权 |
+
+> 若要对外分发二进制，建议同时附带 Apache-2.0 的 `NOTICE`（GPUI Kit 的要求）。
+

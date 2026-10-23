@@ -6,19 +6,20 @@
 
 use std::{
     cell::{Cell, RefCell},
+    fs,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use crate::gpui::{self, 
-    AppContext as _, Focusable as _, ParentElement as _, Styled as _, 
-    Bounds, ClickEvent, Context, DismissEvent, Entity, MouseMoveEvent,
-    Pixels, Point, Render, Subscription, Task, Window,
+use crate::gpui::{
+    self, AppContext as _, Bounds, ClickEvent, Context, DismissEvent, Entity, Focusable as _,
+    MouseMoveEvent, ParentElement as _, Pixels, Point, Render, Styled as _, Subscription, Task,
+    Window,
 };
 use gpui_kit::component::{
     button::ButtonVariant, input::InputState, ActiveTheme as _, WindowExt as _,
@@ -28,6 +29,9 @@ use rust_i18n::t;
 use crate::scanner::{self, FileEntry, ScanPhase, ScanProgress};
 use crate::util;
 use crate::views;
+
+/// 跟随指针时最短的重绘间隔（40Hz）。
+const HOVER_REDRAW_INTERVAL: Duration = Duration::from_millis(25);
 
 /// 当前节点下所有子项的布局矩形（窗口坐标）。
 pub type CellLayout = Rc<Vec<(usize, Bounds<Pixels>)>>;
@@ -45,21 +49,28 @@ pub struct SpaceSnifferApp {
     pub(crate) nav_stack: Vec<usize>,
     pub(crate) nav_names: Vec<String>,
 
-    /// 当前悬停的格子（`current_node().children` 的下标）。
+    /// 当前悬停的格子（`current_node().children` 的下标）及其绝对路径。
+    ///
+    /// 路径用来在树被扫描快照整体替换后，把悬停状态接回同一个条目——
+    /// 只靠下标的话，指针不动时信息卡会莫名消失。
     pub(crate) hovered_cell: Option<usize>,
+    pub(crate) hovered_path: Option<PathBuf>,
+    /// 指针在画布内的窗口坐标：信息卡跟着它走。
+    pub(crate) hover_pos: Option<Point<Pixels>>,
+    /// 上次因为「指针移动」而重绘的时间，用来给跟随重绘限频。
+    last_hover_redraw: Instant,
 
     /// 画布在本帧的实际边界，由 treemap 的 prepaint 回填。
     pub(crate) canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// 本帧算出的格子布局，供命中测试复用。
     pub(crate) cell_layout: Rc<RefCell<CellLayout>>,
 
+    /// 扫描统计缓存：每帧被 3 个视图读到，不要每次去抢扫描线程的锁。
+    pub(crate) stats: ScanStats,
+
     /// 右键菜单（gpui-kit 的 PopupMenu 实体）及其锚点。
     pub(crate) context_menu: Option<Entity<gpui_kit::component::menu::PopupMenu>>,
     pub(crate) context_pos: Point<Pixels>,
-    pub(crate) context_target: Option<Vec<usize>>,
-
-    /// 等待确认删除的目标。
-    pub(crate) delete_target: Option<Vec<usize>>,
 
     /// 用户主动取消扫描后，忽略扫描线程回写的"取消"错误。
     cancel_requested: bool,
@@ -90,12 +101,14 @@ impl SpaceSnifferApp {
             nav_stack: Vec::new(),
             nav_names: Vec::new(),
             hovered_cell: None,
+            hovered_path: None,
+            hover_pos: None,
+            last_hover_redraw: Instant::now(),
             canvas_bounds: Rc::new(Cell::new(None)),
             cell_layout: Rc::new(RefCell::new(Rc::new(Vec::new()))),
+            stats: ScanStats::default(),
             context_menu: None,
             context_pos: Point::default(),
-            context_target: None,
-            delete_target: None,
             cancel_requested: false,
             poll_task: None,
             _input_subscription: None,
@@ -129,25 +142,12 @@ impl SpaceSnifferApp {
     // ---------------------------------------------------------------- 扫描
 
     pub(crate) fn is_scanning(&self) -> bool {
-        self.scan_progress
-            .lock()
-            .map(|p| p.phase == ScanPhase::Scanning)
-            .unwrap_or(false)
+        self.stats.scanning
     }
 
-    /// 当前扫描统计，`render` 每帧取一次，避免重复加锁。
-    pub(crate) fn scan_stats(&self) -> ScanStats {
-        let p = match self.scan_progress.lock() {
-            Ok(p) => p,
-            Err(_) => return ScanStats::default(),
-        };
-        ScanStats {
-            scanning: p.phase == ScanPhase::Scanning,
-            files: p.files_processed,
-            dirs: p.dirs_processed,
-            skipped: p.skipped_dirs,
-            current_path: p.current_path.clone(),
-        }
+    /// 当前扫描统计。读的是缓存字段，不碰扫描线程的锁。
+    pub(crate) fn scan_stats(&self) -> &ScanStats {
+        &self.stats
     }
 
     pub(crate) fn start_scan(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -176,16 +176,22 @@ impl SpaceSnifferApp {
         self.nav_stack.clear();
         self.nav_names.clear();
         self.hovered_cell = None;
+        self.hovered_path = None;
         self.error_message = None;
         self.context_menu = None;
-        self.context_target = None;
-        self.delete_target = None;
         self.cancel_requested = false;
         *self.cell_layout.borrow_mut() = Rc::new(Vec::new());
 
         let progress = new_progress();
         self.scan_progress = progress.clone();
         scanner::start_scan(path, progress);
+
+        // 扫描线程要过一会儿才会把 phase 写成 Scanning，
+        // 这里先把状态置上，避免第一帧闪回欢迎页。
+        self.stats = ScanStats {
+            scanning: true,
+            ..Default::default()
+        };
 
         self.ensure_poller(cx);
         cx.notify();
@@ -209,30 +215,31 @@ impl SpaceSnifferApp {
 
     /// 后台轮询扫描线程，把增量结果搬进视图状态。
     fn ensure_poller(&mut self, cx: &mut Context<Self>) {
-        self.poll_task = Some(cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(100))
-                    .await;
+        self.poll_task = Some(cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
 
-                let keep_polling = this
-                    .update(cx, |this, cx| {
-                        let changed = this.sync_scan_state();
-                        if changed {
-                            cx.notify();
-                        }
-                        this.is_scanning()
-                    })
-                    .unwrap_or(false);
+            let keep_polling = this
+                .update(cx, |this, cx| {
+                    let changed = this.sync_scan_state();
+                    if changed {
+                        cx.notify();
+                    }
+                    this.is_scanning()
+                })
+                .unwrap_or(false);
 
-                if !keep_polling {
-                    break;
-                }
+            if !keep_polling {
+                break;
             }
         }));
     }
 
     /// 把扫描线程的增量/最终结果同步进来，返回是否有变化。
+    ///
+    /// 顺带刷新 [`Self::stats`]：整个应用只在这里抢一次扫描线程的锁，
+    /// 渲染路径直接读缓存字段。
     fn sync_scan_state(&mut self) -> bool {
         let mut changed = false;
 
@@ -241,6 +248,18 @@ impl SpaceSnifferApp {
                 Ok(p) => p,
                 Err(_) => return false,
             };
+
+            let stats = ScanStats {
+                scanning: p.phase == ScanPhase::Scanning,
+                files: p.files_processed,
+                dirs: p.dirs_processed,
+                skipped: p.skipped_dirs,
+                current_path: p.current_path.clone(),
+            };
+            if stats != self.stats {
+                self.stats = stats;
+                changed = true;
+            }
 
             let partial = p.partial_root.take();
             let result = p.result.take();
@@ -308,15 +327,6 @@ impl SpaceSnifferApp {
         Some(node)
     }
 
-    pub(crate) fn get_entry_by_path(&self, path: &[usize]) -> Option<&FileEntry> {
-        let root = self.root.as_ref()?;
-        let mut node: &FileEntry = root;
-        for &idx in path {
-            node = node.children.get(idx)?;
-        }
-        Some(node)
-    }
-
     pub(crate) fn navigate_into(&mut self, child_index: usize, cx: &mut Context<Self>) {
         let Some(node) = self.current_node() else {
             return;
@@ -324,7 +334,8 @@ impl SpaceSnifferApp {
         let Some(child) = node.children.get(child_index) else {
             return;
         };
-        if !child.is_dir || child.children.is_empty() {
+        // 空目录也允许进入：进去后会显示「(空目录)」，点空白处返回上级。
+        if !child.is_dir {
             return;
         }
 
@@ -351,9 +362,10 @@ impl SpaceSnifferApp {
     }
 
     fn after_navigation(&mut self, cx: &mut Context<Self>) {
+        // 层级变了：旧层级的悬停没有意义，等下一次鼠标移动重新命中。
         self.hovered_cell = None;
+        self.hovered_path = None;
         self.context_menu = None;
-        self.context_target = None;
         *self.cell_layout.borrow_mut() = Rc::new(Vec::new());
         cx.notify();
     }
@@ -367,6 +379,7 @@ impl SpaceSnifferApp {
         self.nav_stack.clear();
         self.nav_names.truncate(1);
         self.hovered_cell = None;
+        self.hovered_path = None;
         *self.cell_layout.borrow_mut() = Rc::new(Vec::new());
     }
 
@@ -393,7 +406,10 @@ impl SpaceSnifferApp {
                 break;
             };
             let child_path = current.join(component);
-            let Some(index) = node.children.iter().position(|child| child.path == child_path)
+            let Some(index) = node
+                .children
+                .iter()
+                .position(|child| child.path == child_path)
             else {
                 break;
             };
@@ -406,19 +422,38 @@ impl SpaceSnifferApp {
 
         self.nav_stack = stack;
         self.nav_names = names;
-        self.hovered_cell = None;
+
+        // 树被替换了但层级没变：按路径把悬停状态接回去。
+        // 否则指针不动时，信息卡会在每次快照到达时闪没。
+        let hovered = self.hovered_path.as_ref().and_then(|path| {
+            self.current_node()
+                .and_then(|node| node.children.iter().position(|child| &child.path == path))
+        });
+        self.hovered_cell = hovered;
+
         *self.cell_layout.borrow_mut() = Rc::new(Vec::new());
     }
 
     // ------------------------------------------------------------ 删除
 
-    pub(crate) fn request_delete(&mut self, target: Vec<usize>, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(entry) = self.get_entry_by_path(&target) else {
-            return;
-        };
-        let name = entry.name.clone();
-        let is_dir = entry.is_dir;
-        self.delete_target = Some(target.clone());
+    /// 请求删除一个条目。只记绝对路径：确认框打开期间树可能被扫描快照
+    /// 整体替换、子项重排，按下标二次定位会指到别的条目。
+    pub(crate) fn request_delete(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string());
+        // 只用于文案（删除文件夹 / 删除文件）。
+        let is_dir = self
+            .current_node()
+            .and_then(|node| node.children.iter().find(|child| child.path == path))
+            .map(|child| child.is_dir)
+            .unwrap_or(false);
 
         let weak = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _window, _cx| {
@@ -431,8 +466,7 @@ impl SpaceSnifferApp {
             };
             let cancel_text = t!("cancel_button").to_string();
             let weak_ok = weak.clone();
-            let weak_cancel = weak.clone();
-            let target_ok = target.clone();
+            let path_ok = path.clone();
 
             alert
                 .title(title)
@@ -442,53 +476,58 @@ impl SpaceSnifferApp {
                 .cancel_text(cancel_text)
                 .show_cancel(true)
                 .on_ok(move |_, window, cx| {
+                    let path = path_ok.clone();
                     let _ = weak_ok.update(cx, |this, cx| {
-                        this.delete_target = None;
-                        this.perform_delete(&target_ok, window, cx);
+                        this.perform_delete(path, window, cx);
                     });
-                    true
-                })
-                .on_cancel(move |_, _, cx| {
-                    let _ = weak_cancel.update(cx, |this, _| this.delete_target = None);
                     true
                 })
         });
     }
 
-    fn perform_delete(&mut self, target: &[usize], window: &mut Window, cx: &mut Context<Self>) {
-        let Some(last) = target.last().copied() else {
-            return;
-        };
-        let parent_path = &target[..target.len() - 1];
+    /// 按绝对路径删除，并在内存树里摘掉同一个条目。
+    fn perform_delete(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string());
 
-        let Some(entry) = self.get_entry_by_path(target) else {
-            return;
+        // 用 symlink_metadata：链接要按链接本身删（remove_file），
+        // 不能顺着链接 remove_dir_all 到目标目录里去。
+        let meta = match fs::symlink_metadata(&path) {
+            Ok(meta) => meta,
+            Err(err) => {
+                window.push_notification(
+                    gpui_kit::component::notification::Notification::error(
+                        t!("delete_failed", name = &name, msg = err.to_string()).to_string(),
+                    ),
+                    cx,
+                );
+                return;
+            }
         };
-        let entry_path = entry.path.clone();
-        let is_dir = entry.is_dir;
-        let entry_name = entry.name.clone();
 
-        let result = if is_dir {
-            std::fs::remove_dir_all(&entry_path)
+        let remove_dir = meta.is_dir() && !meta.file_type().is_symlink();
+        let result = if remove_dir {
+            fs::remove_dir_all(&path)
         } else {
-            std::fs::remove_file(&entry_path)
+            fs::remove_file(&path)
         };
 
         if let Err(err) = result {
             window.push_notification(
                 gpui_kit::component::notification::Notification::error(
-                    t!("delete_failed", name = &entry_name, msg = err.to_string()).to_string(),
+                    t!("delete_failed", name = &name, msg = err.to_string()).to_string(),
                 ),
                 cx,
             );
             return;
         }
 
-        // 重新走到父节点，摘掉这一项。
         let keep = self.current_node_path();
         if let Some(root) = self.root.as_mut() {
             let root = Arc::make_mut(root);
-            if remove_child(root, parent_path, last) {
+            if remove_entry(root, &path) {
                 recalc_node(root);
             }
         }
@@ -519,16 +558,54 @@ impl SpaceSnifferApp {
     }
 
     pub(crate) fn on_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
-        let hovered = if self.pointer_inside_canvas(event.position) {
+        let inside = self.pointer_inside_canvas(event.position);
+        let hovered = if inside {
             self.hit_test(event.position)
         } else {
             None
         };
 
+        let mut needs_redraw = hovered != self.hovered_cell;
+
         if hovered != self.hovered_cell {
             self.hovered_cell = hovered;
+            self.hovered_path = self
+                .hovered_cell
+                .and_then(|index| {
+                    self.current_node()
+                        .and_then(|node| node.children.get(index))
+                })
+                .map(|child| child.path.clone());
+        }
+
+        // 信息卡跟着指针走，所以悬停期间的移动也要重绘。
+        //
+        // 但一帧要提交上万个 quad，跟着每个像素重建整棵树太贵了：
+        // 用 2px 位移 + 25ms（40Hz）双重节流，肉眼看不出来，
+        // 却能把「移动鼠标就吃满一个核」压回去。
+        let moved = match self.hover_pos {
+            Some(previous) => (previous - event.position).magnitude() > 2.0,
+            None => true,
+        };
+        self.hover_pos = inside.then_some(event.position);
+
+        if moved && hovered.is_some() {
+            let now = Instant::now();
+            if now.duration_since(self.last_hover_redraw) >= HOVER_REDRAW_INTERVAL {
+                self.last_hover_redraw = now;
+                needs_redraw = true;
+            }
+        }
+
+        if needs_redraw {
             cx.notify();
         }
+    }
+
+    /// 当前悬停的条目，供信息卡读取。
+    pub(crate) fn hovered_entry(&self) -> Option<&FileEntry> {
+        let index = self.hovered_cell?;
+        self.current_node()?.children.get(index)
     }
 
     pub(crate) fn on_left_click(&mut self, event: &ClickEvent, cx: &mut Context<Self>) {
@@ -536,7 +613,7 @@ impl SpaceSnifferApp {
         match self.hit_test(position) {
             Some(index) => {
                 if let Some(child) = self.current_node().and_then(|n| n.children.get(index)) {
-                    if child.is_dir && !child.children.is_empty() {
+                    if child.is_dir {
                         self.navigate_into(index, cx);
                     }
                 }
@@ -555,24 +632,25 @@ impl SpaceSnifferApp {
         let Some(index) = self.hit_test(position) else {
             return;
         };
-        let mut target = self.nav_stack.clone();
-        target.push(index);
-        self.open_context_menu(target, position, window, cx);
+        let Some((path, is_dir)) = self
+            .current_node()
+            .and_then(|node| node.children.get(index))
+            .map(|child| (child.path.clone(), child.is_dir))
+        else {
+            return;
+        };
+
+        self.open_context_menu(path, is_dir, position, window, cx);
     }
 
     fn open_context_menu(
         &mut self,
-        target: Vec<usize>,
+        path: PathBuf,
+        is_dir: bool,
         position: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(entry) = self.get_entry_by_path(&target) else {
-            return;
-        };
-        let path = entry.path.clone();
-        let is_dir = entry.is_dir;
-
         let weak = cx.entity().downgrade();
         let open_label = if is_dir {
             t!("context_open_folder").to_string()
@@ -585,49 +663,55 @@ impl SpaceSnifferApp {
             t!("context_delete_file").to_string()
         };
 
-        let menu_target = target.clone();
-        let menu = gpui_kit::component::menu::PopupMenu::build(window, cx, move |menu, _window, _cx| {
-            let path_open = path.clone();
-            let weak_delete = weak.clone();
-            let target_delete = menu_target.clone();
+        // 菜单里只保存绝对路径：子项按大小重排会让下标漂移，
+        // 真正动手时必须重新按路径定位。
+        let menu_path = path.clone();
+        let menu =
+            gpui_kit::component::menu::PopupMenu::build(window, cx, move |menu, _window, _cx| {
+                let path_open = menu_path.clone();
+                let weak_delete = weak.clone();
+                let path_delete = menu_path.clone();
 
-            menu.item(
-                gpui_kit::component::menu::PopupMenuItem::new(open_label).on_click(
-                    move |_, _window, _cx| {
-                        util::open_file_location(&path_open, is_dir);
-                    },
-                ),
-            )
-            .separator()
-            .item(
-                gpui_kit::component::menu::PopupMenuItem::new(delete_label).on_click(
-                    move |_, window, cx| {
-                        let target = target_delete.clone();
-                        let _ = weak_delete.update(cx, |this, cx| {
-                            this.request_delete(target, window, cx);
-                        });
-                    },
-                ),
-            )
-        });
+                menu.item(
+                    gpui_kit::component::menu::PopupMenuItem::new(open_label).on_click(
+                        move |_, _window, _cx| {
+                            util::open_file_location(&path_open, is_dir);
+                        },
+                    ),
+                )
+                .separator()
+                .item(
+                    gpui_kit::component::menu::PopupMenuItem::new(delete_label).on_click(
+                        move |_, window, cx| {
+                            let path = path_delete.clone();
+                            let _ = weak_delete.update(cx, |this, cx| {
+                                this.request_delete(path, window, cx);
+                            });
+                        },
+                    ),
+                )
+            });
 
         // 菜单需要焦点才能响应键盘（Esc / 上下键）。
+        // 关掉之后要还回去，否则输入框再也没法用键盘。
+        let previous_focus = window.focused(cx);
         menu.focus_handle(cx).focus(window, cx);
 
-        // 菜单关闭（点外面 / Esc / 选中条目）后清理状态。
+        // 菜单关闭（点外面 / Esc / 选中条目）后清理状态并把焦点还回去。
         self._menu_subscription = Some(cx.subscribe_in(
             &menu,
             window,
-            |this, _, _: &DismissEvent, _window, cx| {
+            move |this, _, _: &DismissEvent, window, cx| {
                 this.context_menu = None;
-                this.context_target = None;
+                if let Some(handle) = previous_focus.as_ref() {
+                    handle.focus(window, cx);
+                }
                 cx.notify();
             },
         ));
 
         self.context_menu = Some(menu);
         self.context_pos = position;
-        self.context_target = Some(target);
         cx.notify();
     }
 
@@ -709,7 +793,7 @@ impl Render for SpaceSnifferApp {
 }
 
 /// 扫描进度快照。
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ScanStats {
     pub scanning: bool,
     pub files: u64,
@@ -726,7 +810,8 @@ fn initial_path_from_args() -> Option<String> {
         .filter(|arg| !arg.trim().is_empty())
 }
 
-fn new_progress() -> Arc<Mutex<ScanProgress>> {    Arc::new(Mutex::new(ScanProgress {
+fn new_progress() -> Arc<Mutex<ScanProgress>> {
+    Arc::new(Mutex::new(ScanProgress {
         phase: ScanPhase::Idle,
         result: None,
         partial_root: None,
@@ -753,20 +838,92 @@ fn recalc_node(node: &mut FileEntry) -> u64 {
     total
 }
 
-/// 从树上摘掉 `parent_path` 下的第 `index` 个子项，返回是否真的删掉了。
-fn remove_child(root: &mut FileEntry, parent_path: &[usize], index: usize) -> bool {
-    let mut node = root;
-    for &parent in parent_path {
-        match node.children.get_mut(parent) {
-            Some(child) => node = child,
-            None => return false,
+/// 在树里按绝对路径摘掉一个条目，返回是否找到并删掉了。
+///
+/// 用路径而不是下标定位：扫描快照和删除都会让 `children` 顺序变化，
+/// 下标在两次操作之间是不可靠的。
+fn remove_entry(node: &mut FileEntry, target: &Path) -> bool {
+    if let Some(index) = node.children.iter().position(|child| child.path == target) {
+        node.children.remove(index);
+        return true;
+    }
+
+    for child in &mut node.children {
+        if child.is_dir && target.starts_with(&child.path) && remove_entry(child, target) {
+            return true;
         }
     }
 
-    if index < node.children.len() {
-        node.children.remove(index);
-        true
-    } else {
-        false
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(path: &str, size: u64) -> FileEntry {
+        FileEntry {
+            name: path.rsplit(['\\', '/']).next().unwrap_or(path).to_string(),
+            path: PathBuf::from(path),
+            size,
+            children: Vec::new(),
+            is_dir: false,
+            is_symlink: false,
+        }
+    }
+
+    fn dir(path: &str, children: Vec<FileEntry>) -> FileEntry {
+        let size = children.iter().map(|child| child.size).sum();
+        FileEntry {
+            name: path.rsplit(['\\', '/']).next().unwrap_or(path).to_string(),
+            path: PathBuf::from(path),
+            size,
+            children,
+            is_dir: true,
+            is_symlink: false,
+        }
+    }
+
+    /// 扫描快照会按大小重排 children。删除必须跟着路径走，
+    /// 否则「右键 A、树重排、确认」会摘掉 B。
+    #[test]
+    fn remove_entry_survives_sibling_reorder() {
+        let small = file("/tmp/root/small.txt", 10);
+        let big = file("/tmp/root/big.txt", 90);
+
+        let mut tree = dir("/tmp/root", vec![big, small]);
+        // 模拟一次快照：顺序反过来
+        tree.children.reverse();
+
+        assert!(remove_entry(&mut tree, Path::new("/tmp/root/small.txt")));
+
+        let names: Vec<&str> = tree.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["big.txt"], "被删的应该是 small.txt");
+    }
+
+    #[test]
+    fn remove_entry_reaches_nested_paths() {
+        let deep = file("/tmp/root/a/b/deep.bin", 42);
+        let mut tree = dir(
+            "/tmp/root",
+            vec![dir("/tmp/root/a", vec![dir("/tmp/root/a/b", vec![deep])])],
+        );
+
+        assert!(remove_entry(&mut tree, Path::new("/tmp/root/a/b/deep.bin")));
+        assert!(!remove_entry(
+            &mut tree,
+            Path::new("/tmp/root/a/b/deep.bin")
+        ));
+
+        // 目录大小由调用方重算，这里显式跟一遍 perform_delete 的流程。
+        recalc_node(&mut tree);
+        assert_eq!(tree.size, 0);
+    }
+
+    #[test]
+    fn remove_entry_reports_missing_paths() {
+        let mut tree = dir("/tmp/root", vec![file("/tmp/root/keep.txt", 1)]);
+        assert!(!remove_entry(&mut tree, Path::new("/tmp/root/gone.txt")));
+        assert_eq!(tree.children.len(), 1);
     }
 }

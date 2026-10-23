@@ -1,7 +1,12 @@
-
+/// 初始化语言。
+///
+/// 注意有两个 i18n 实例：应用自己用 `rust-i18n 3`，而 gpui-component 用的是
+/// `rust-i18n 4`，两者互相看不见对方的 locale。所以设置一次不够，组件库里
+/// 的输入框右键菜单、对话框按钮等文案要单独同步一份。
 pub fn init() {
     let locale = detect();
     rust_i18n::set_locale(locale);
+    gpui_kit::component::set_locale(locale);
 }
 
 fn detect() -> &'static str {

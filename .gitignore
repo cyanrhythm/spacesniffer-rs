@@ -3,3 +3,7 @@
 build
 .vscode
 .code
+pkg
+*/linux/archlinux/src
+*/linux/archlinux/spacesniffer-rs
+*/linux/archlinux/*zst

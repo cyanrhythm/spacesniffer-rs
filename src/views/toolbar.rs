@@ -1,7 +1,8 @@
 //! 顶部工具栏：路径输入、扫描控制、面包屑导航。
 
-use crate::gpui::{self, 
-    px, AnyElement, Context, IntoElement, ParentElement as _, Styled as _, Window};
+use crate::gpui::{
+    self, px, AnyElement, Context, IntoElement, ParentElement as _, Styled as _, Window,
+};
 use gpui_kit::component::{
     breadcrumb::{Breadcrumb, BreadcrumbItem},
     button::{Button, ButtonVariants as _},
@@ -31,20 +32,12 @@ pub(crate) fn toolbar(
         .border_b_1()
         .border_color(border)
         .child(
-            v_flex()
-                .gap_0p5()
-                .child(
-                    gpui::div()
-                        .text_base()
-                        .font_semibold()
-                        .child("SpaceSniffer-RS"),
-                )
-                .child(
-                    gpui::div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Treemap · GPUI Kit"),
-                ),
+            v_flex().gap_0p5().child(
+                gpui::div()
+                    .text_base()
+                    .font_semibold()
+                    .child("SpaceSniffer-RS"),
+            ),
         )
         .child(gpui::div().w(px(1.)).h(px(24.)).bg(border))
         .child(
@@ -53,10 +46,8 @@ pub(crate) fn toolbar(
                 .child(Input::new(&app.scan_path).cleanable(true).small()),
         )
         .child(
-            Button::new("scan")
-                .primary()
+            super::cta_button("scan", t!("scan_button").to_string(), cx)
                 .small()
-                .label(t!("scan_button").to_string())
                 .on_click(cx.listener(|this, _, window, cx| this.start_scan(window, cx))),
         )
         .child(

@@ -8,11 +8,11 @@ use std::{
     rc::Rc,
 };
 
-use crate::gpui::{self, 
-    InteractiveElement as _, StatefulInteractiveElement as _, 
-    anchored, canvas, deferred, div, fill, font, outline, px, AnyElement, App, BorderStyle, Bounds,
-    Context, Font, FontFallbacks, FontWeight, Hsla, IntoElement, MouseButton, ParentElement as _,
-    Pixels, Point, ShapedLine, SharedString, Styled as _, TextAlign, TextRun, Window,
+use crate::gpui::{
+    self, anchored, canvas, deferred, div, fill, font, point, px, AnyElement, App, Bounds, Context,
+    Font, FontFallbacks, FontWeight, Hsla, InteractiveElement as _, IntoElement, MouseButton,
+    ParentElement as _, Pixels, Point, ShapedLine, SharedString, StatefulInteractiveElement as _,
+    Styled as _, TextAlign, TextRun, Window,
 };
 use gpui_kit::component::{ActiveTheme as _, StyledExt as _};
 use rust_i18n::t;
@@ -27,6 +27,8 @@ use crate::views::v_flex;
 const PADDING: f32 = 2.0;
 const MIN_LABEL_WIDTH: f32 = 34.0;
 const MIN_LABEL_HEIGHT: f32 = 18.0;
+/// 矮于这个高度只放得下一行名字，放不下「名字 + 大小」。
+const MIN_TWO_LINE_HEIGHT: f32 = 36.0;
 
 /// 传给 canvas prepaint 的一份快照，避免在绘制闭包里再碰实体状态。
 struct CellInfo {
@@ -40,8 +42,7 @@ struct CellInfo {
 struct PaintedCell {
     rect: Bounds<Pixels>,
     fill: Hsla,
-    border: Hsla,
-    labels: Vec<(ShapedLine, Point<Pixels>, Pixels)>,
+    labels: Vec<(ShapedLine, Pixels)>,
 }
 
 struct TreemapFrame {
@@ -101,33 +102,44 @@ pub(crate) fn treemap_panel(
                 window,
             )
         },
-        |_bounds, frame: TreemapFrame, window, cx| paint_frame(frame, window, cx),
+        |bounds, frame: TreemapFrame, window, cx| paint_frame(frame, bounds, window, cx),
     );
+
+    // 点击/移动只挂在画布这一层：信息卡和角标是它的**兄弟**而不是子节点，
+    // 否则点卡片会冒泡到画布的 on_click，按坐标命中下面的格子并钻进目录。
+    let surface =
+        div()
+            .id("treemap-surface")
+            .size_full()
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, _window, cx| {
+                    this.on_mouse_move(event, cx)
+                }),
+            )
+            .on_click(cx.listener(|this, event: &gpui::ClickEvent, _window, cx| {
+                this.on_left_click(event, cx)
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.on_right_click(event.position, window, cx)
+                }),
+            )
+            .child(treemap_canvas.size_full());
 
     let mut panel = div()
         .id("treemap-panel")
         .relative()
         .size_full()
-        .on_mouse_move(
-            cx.listener(|this, event: &gpui::MouseMoveEvent, _window, cx| {
-                this.on_mouse_move(event, cx)
-            }),
-        )
-        .on_click(cx.listener(|this, event: &gpui::ClickEvent, _window, cx| {
-            this.on_left_click(event, cx)
-        }))
-        .on_mouse_down(
-            MouseButton::Right,
-            cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
-                this.on_right_click(event.position, window, cx)
-            }),
-        )
-        .child(treemap_canvas.size_full());
+        .child(surface);
 
     // ---- 扫描中的角标 ----
     if stats.scanning {
         panel = panel.child(
             div()
+                .id("scan-badge")
+                // occlude：挡住指针，别让下面画布的 hitbox 也收到事件
+                .occlude()
                 .absolute()
                 .top_2()
                 .right_2()
@@ -141,33 +153,47 @@ pub(crate) fn treemap_panel(
         );
     }
 
-    // ---- 悬停信息卡 ----
-    if let Some(child) = app.hovered_cell.and_then(|i| node.children.get(i)) {
-        panel = panel.child(
-            div()
-                .absolute()
-                .right_3()
-                .bottom_3()
-                .max_w(px(420.))
-                .rounded_md()
-                .bg(overlay)
-                .border_1()
-                .border_color(border)
-                .shadow_md()
-                .p_3()
-                .child(info_card(child, muted)),
-        );
-    }
+    // 悬停信息卡不在这里画：它要跟着指针走，交给 `overlays()` 用
+    // `deferred(anchored(..))` 贴边翻转（见该函数）。
 
     panel.into_any_element()
 }
 
-/// 覆盖层：右键菜单等浮层。用窗口坐标定位，交给 `deferred` 在最后绘制。
+/// 覆盖层：悬停信息卡、右键菜单。都用窗口坐标定位，由 `deferred` 最后绘制。
 pub(crate) fn overlays(
     app: &SpaceSnifferApp,
-    _cx: &mut Context<SpaceSnifferApp>,
+    cx: &mut Context<SpaceSnifferApp>,
 ) -> Vec<AnyElement> {
     let mut layers = Vec::new();
+
+    // ---- 悬停信息卡：跟着指针，稍微偏右下，贴边时自动翻转 ----
+    if let (Some(pointer), Some(entry)) = (app.hover_pos, app.hovered_entry()) {
+        let muted = cx.theme().muted_foreground;
+        let overlay = cx.theme().popover;
+        let border = cx.theme().border;
+
+        layers.push(
+            deferred(
+                anchored()
+                    .position(pointer + point(px(14.), px(18.)))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(
+                        div()
+                            .max_w(px(420.))
+                            .rounded_md()
+                            .bg(overlay)
+                            .border_1()
+                            .border_color(border)
+                            .shadow_md()
+                            .p_3()
+                            .child(info_card(entry, muted)),
+                    ),
+            )
+            // 比右键菜单低一层，菜单打开时压在卡片上面
+            .with_priority(gpui_kit::base::POPUP_PRIORITY - 1)
+            .into_any_element(),
+        );
+    }
 
     if let Some(menu) = app.context_menu.clone() {
         layers.push(
@@ -252,9 +278,29 @@ fn prepaint_frame(
     }
 
     let total: u64 = cells.iter().map(|cell| cell.size).sum();
+
+    // 0 字节条目（空目录、空文件、Windows 目录联接）在按比例分配里权重为 0，
+    // 会被直接跳过——于是既看不见也点不到。给它们一小块保底面积：
+    // 单个最多 0.4%，全部加起来最多 10%，按个数摊。
+    let zero_count = cells.iter().filter(|cell| cell.size == 0).count();
+    let zero_weight = if total == 0 || zero_count == 0 {
+        0.0
+    } else {
+        total as f64 * (0.10 / zero_count as f64).min(0.004)
+    };
+
     let items: Vec<(usize, f64)> = cells
         .iter()
-        .map(|cell| (cell.index, if total == 0 { 1.0 } else { cell.size as f64 }))
+        .map(|cell| {
+            let weight = if total == 0 {
+                1.0
+            } else if cell.size == 0 {
+                zero_weight
+            } else {
+                cell.size as f64
+            };
+            (cell.index, weight)
+        })
         .collect();
 
     let layout = treemap::compute_treemap(&items, inner);
@@ -275,35 +321,47 @@ fn prepaint_frame(
             base
         };
 
+        // 标签：名字 + 大小两行，整体在格子里居中；格子太矮就只写名字。
         let mut labels = Vec::new();
         if rect.size.width.as_f32() >= MIN_LABEL_WIDTH
             && rect.size.height.as_f32() >= MIN_LABEL_HEIGHT
         {
-            let font_size = (rect.size.height.as_f32() / 4.0).clamp(10.0, 15.0);
+            let two_lines = rect.size.height.as_f32() >= MIN_TWO_LINE_HEIGHT;
+            let height = rect.size.height.as_f32();
+            let name_size = (height / if two_lines { 6.0 } else { 4.0 }).clamp(10.0, 15.0);
             let text_color = colors::label_color(color);
-            let max_width = rect.size.width - px(8.);
-            let name = util::truncate_name(&cell.name, 40);
+            let max_width = rect.size.width - px(6.);
+            let name = util::truncate_name(&cell.name, 48);
 
             if let Some(line) = fit_label(
                 window,
                 &name,
                 &text_font,
-                px(font_size),
+                px(name_size),
                 text_color,
                 max_width,
             ) {
-                let origin = Point {
-                    x: rect.origin.x + px(4.),
-                    y: rect.center().y - px(font_size / 2.0),
-                };
-                labels.push((line, origin, px(font_size)));
+                labels.push((line, px(name_size)));
+
+                // 0 字节不写「0 B」：这些格子多半是没权限读的目录
+                //（扫描时被跳过、大小记 0），写死 0 B 会误导。
+                //
+                // 大小这一行不做截断：放得下就画完整，放不下就不画
+                //（「30.8 ..」这种半截比没有更难看）。
+                if two_lines && cell.size > 0 {
+                    let size_size = (name_size * 0.82).max(9.0);
+                    let size_text: SharedString = util::format_size(cell.size).into();
+                    let line = shape_line(window, size_text, &text_font, px(size_size), text_color);
+                    if line.width() <= max_width {
+                        labels.push((line, px(size_size)));
+                    }
+                }
             }
         }
 
         painted.push(PaintedCell {
             rect,
             fill: color,
-            border: colors::shade(color, 0.55),
             labels,
         });
     }
@@ -314,13 +372,43 @@ fn prepaint_frame(
     }
 }
 
-fn paint_frame(frame: TreemapFrame, window: &mut Window, cx: &mut App) {
-    for cell in &frame.cells {
-        window.paint_quad(fill(cell.rect, cell.fill));
-        window.paint_quad(outline(cell.rect, cell.border, BorderStyle::Solid));
+fn paint_frame(frame: TreemapFrame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
+    // 先铺一层深色底：每个格子的填充各自内缩 0.5px，缝隙露出这层底色。
+    // 等于用「1 个背景 quad + 每格 1 个 fill」换回细网格——
+    // 之前每格再画一条 1px 描边会被拆成 4 条 strip，几千个格子就是几万个
+    // primitive，是整帧最贵的开销（实测 10.9ms → 3.2ms）。
+    window.paint_quad(fill(bounds, colors::rgb(18, 18, 20)));
 
-        for (line, origin, line_height) in &cell.labels {
-            let _ = line.paint(*origin, *line_height, TextAlign::Left, None, window, cx);
+    for cell in &frame.cells {
+        let width = cell.rect.size.width.as_f32();
+        let height = cell.rect.size.height.as_f32();
+
+        // 亚像素格子看不见，白占一个 primitive。
+        if width < 1.0 || height < 1.0 {
+            continue;
+        }
+
+        let rect = if width > 1.5 && height > 1.5 {
+            cell.rect.inset(px(0.5))
+        } else {
+            cell.rect
+        };
+        window.paint_quad(fill(rect, cell.fill));
+
+        // 多行标签作为一个整体垂直居中，每行在格子宽度内水平居中。
+        let total_height: f32 = cell.labels.iter().map(|(_, height)| height.as_f32()).sum();
+        let mut y = cell.rect.center().y - px(total_height / 2.0);
+
+        for (line, line_height) in &cell.labels {
+            let _ = line.paint(
+                point(cell.rect.origin.x, y),
+                *line_height,
+                TextAlign::Center,
+                Some(cell.rect.size.width),
+                window,
+                cx,
+            );
+            y += *line_height;
         }
     }
 
@@ -375,7 +463,10 @@ fn shape_line(
         .shape_line(text, font_size, &[run], None)
 }
 
-/// 先按字宽估算裁一刀，再取真正 shape 出来宽度合适的版本。
+/// 排版一段能放下就行的标签。
+///
+/// 先用字宽估算裁一刀（省掉大部分 shaping），再按实际宽度逐步收缩：
+/// 之前估算偏宽就直接放弃，长中文名会整块空白，现在最多缩到 4 个字符。
 fn fit_label(
     window: &mut Window,
     text: &str,
@@ -388,19 +479,30 @@ fn fit_label(
         return None;
     }
 
+    let total = text.chars().count();
     let estimate = util::est_text_width(text, font_size.as_f32());
-    let drawn = if estimate <= max_width.as_f32() {
-        text.to_string()
+    let mut limit = if estimate <= max_width.as_f32() {
+        total
     } else {
-        let char_count = text.chars().count().max(1);
-        let keep = ((max_width.as_f32() / estimate.max(1.0)) * char_count as f32).floor() as usize;
-        util::truncate_name(text, keep.clamp(2, char_count))
-    };
-
-    if drawn.is_empty() {
-        return None;
+        ((max_width.as_f32() / estimate.max(1.0)) * total as f32).floor() as usize
     }
+    .clamp(4.min(total), total);
 
-    let line = shape_line(window, drawn.into(), text_font, font_size, color);
-    (line.width() <= max_width).then_some(line)
+    loop {
+        let candidate = util::truncate_name(text, limit.max(4));
+        let line = shape_line(window, candidate.into(), text_font, font_size, color);
+
+        if line.width() <= max_width {
+            return Some(line);
+        }
+        if limit <= 4 {
+            return None;
+        }
+
+        // 按实际超宽比例收缩，至少减 1，几轮就能收敛。
+        let ratio = (max_width.as_f32() / line.width().as_f32()).clamp(0.35, 0.9);
+        limit = ((limit as f32 * ratio).floor() as usize)
+            .min(limit - 1)
+            .max(4);
+    }
 }

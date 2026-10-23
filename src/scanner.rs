@@ -341,7 +341,7 @@ fn scan_recursive_inner(
         }
     }
 
-    children.sort_by(|a, b| b.size.cmp(&a.size));
+    children.sort_by_key(|child| std::cmp::Reverse(child.size));
 
     {
         let mut p = progress.lock().unwrap();
@@ -361,7 +361,7 @@ fn entry_name(path: &Path) -> String {
 fn snapshot_entry(entry: &FileEntry, children: &[FileEntry]) -> FileEntry {
     let mut snap = entry.clone();
     let mut sorted: Vec<FileEntry> = children.to_vec();
-    sorted.sort_by(|a, b| b.size.cmp(&a.size));
+    sorted.sort_by_key(|child| std::cmp::Reverse(child.size));
     snap.children = sorted;
     snap
 }
@@ -372,10 +372,8 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "spacesniffer-scan-{tag}-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("spacesniffer-scan-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -496,7 +494,10 @@ mod tests {
         assert!(link.children.is_empty(), "链接目标不能被展开");
         // 目标只算一次：1024 字节的文件 + 链接自身
         assert_eq!(tree.size, 1024 + link.size);
-        assert!(link.size > 0, "链接按 lstat 大小记录，方便在 treemap 里定位");
+        assert!(
+            link.size > 0,
+            "链接按 lstat 大小记录，方便在 treemap 里定位"
+        );
 
         fs::remove_dir_all(&root).ok();
     }
