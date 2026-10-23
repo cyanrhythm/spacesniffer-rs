@@ -1,7 +1,9 @@
 # SpaceSniffer-RS
 
-SpaceSniffer-RS 是一个跨平台磁盘空间分析工具，使用实时 Treemap 可视化，灵感来自 [SpaceSniffer](http://www.uderzo.it/main_products/space_sniffer/).
 
+<div align="center">
+
+SpaceSniffer-RS 是一个跨平台磁盘空间分析工具，使用实时 Treemap 可视化，灵感来自 [SpaceSniffer](http://www.uderzo.it/main_products/space_sniffer/).
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-3da639.svg)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.92%2B-dea584?logo=rust&logoColor=white)](https://www.rust-lang.org)
@@ -10,11 +12,12 @@ SpaceSniffer-RS 是一个跨平台磁盘空间分析工具，使用实时 Treema
 [![i18n](https://img.shields.io/badge/i18n-zh--CN%20%7C%20en-8957e5)](./locales)
 ![VERSION](https://img.shields.io/badge/version-1.0.0-green)
 
+</div>
 
 
 GUI 层基于 **[GPUI Kit](https://gpui-kit.com)**（GPUI + GPUI Component 组件库）；本项目此前使用的是 egui/eframe，已完成整体迁移。
 
-![Treemap 视图](doc/screenshot-treemap.png)
+![Treemap 视图](docs/screenshot-treemap.png)
 
 </div>
 
