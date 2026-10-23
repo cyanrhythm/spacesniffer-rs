@@ -8,12 +8,8 @@ description = "A cross-platform disk space analyzer with treemap visualization"
 winres = "0.1"
 
 [dependencies]
-eframe = { version = "0.31", features = ["wgpu"] }
-egui = "0.31"
-rfd = "0.15"
-resvg = "0.44"
+gpui-kit = "0.8"
 rust-i18n = "3"
-tiny-skia = "0.11"
 
 [profile.release]
 opt-level = 2

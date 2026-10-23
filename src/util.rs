@@ -28,17 +28,20 @@ pub fn truncate_name(name: &str, max_chars: usize) -> String {
     }
 }
 
+/// 粗估一段文本的像素宽度：CJK 按 0.85em、ASCII 按 0.52em 算。
+///
+/// 只用来在 `shape_line` 之前先裁一刀，避免每帧为超长文件名反复排版。
 pub fn est_text_width(text: &str, font_size: f32) -> f32 {
-    let mut cjk_count = 0.0f32;
-    let mut ascii_count = 0.0f32;
+    let mut wide = 0.0f32;
+    let mut narrow = 0.0f32;
     for ch in text.chars() {
         if ch > '\u{2e80}' {
-            cjk_count += 1.0;
+            wide += 1.0;
         } else {
-            ascii_count += 1.0;
+            narrow += 1.0;
         }
     }
-    ascii_count * font_size * 0.52 + cjk_count * font_size * 0.85
+    narrow * font_size * 0.52 + wide * font_size * 0.85
 }
 
 pub fn dirs_or_home() -> String {
