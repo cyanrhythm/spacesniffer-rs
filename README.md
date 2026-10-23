@@ -2,7 +2,7 @@
 
 SpaceSniffer-RS 是一个跨平台磁盘空间分析工具，使用实时 Treemap 可视化，灵感来自 [SpaceSniffer](http://www.uderzo.it/main_products/space_sniffer/).
 
-<div align="center">
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-3da639.svg)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.92%2B-dea584?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![GUI: GPUI Kit](https://img.shields.io/badge/GUI-GPUI%20Kit-4c8df6)](https://gpui-kit.com)
@@ -158,7 +158,7 @@ spacesniffer-rs/
 ```text
 MIT License
 
-Copyright (c) 2026 Purple桜 <alicecats@qq.com>
+Copyright (c) 2026 CYANRHYTHM <alicecats@qq.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
