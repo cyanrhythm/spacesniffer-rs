@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://gitee.com/purplesakura/spacesniffer-rs"
 
 [build-dependencies]
-winres = "0.1"
+tauri-winres = "0.3"
 
 [dependencies]
 gpui-kit = "0.8"

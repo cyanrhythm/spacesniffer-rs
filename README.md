@@ -127,7 +127,7 @@ spacesniffer-rs/
 |-------|------|
 | `gpui-kit` | GUI 框架：GPUI + GPUI Component（按钮、输入框、面包屑、右键菜单、对话框、通知、主题） |
 | `rust-i18n` | 中英文案 |
-| `winres`（build） | Windows exe 图标与版本资源 |
+| `tauri-winres`（build） | Windows exe 图标与版本资源（内部用 `embed-resource` 找资源编译器，交叉编译也认） |
 
 目录选择使用 GPUI 自带的 `prompt_for_paths`，不再需要额外对话框 crate。
 
