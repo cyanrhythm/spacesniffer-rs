@@ -11,7 +11,13 @@ fn main() {
         // 资源管理器「属性 → 详细信息」读的是这里的资源；安装包里的产品名/版本
         // 来自 packager 配置，两处要一起改。FileVersion / ProductVersion
         // 由 tauri-winres 取 CARGO_PKG_VERSION，不会与 Cargo.toml 脱节。
+        // 图标要嵌两份：
+        // - 32512（set_icon 的默认值）是资源管理器 / 任务栏找 exe 图标用的；
+        // - 1 是 gpui 的窗口图标加载器写死的资源 ID
+        //   （gpui-pre-windows/src/platform.rs 的 load_icon 用 MAKEINTRESOURCE(1)）。
+        // 只嵌 32512 时那边的 LoadImageW 拿到 NULL，窗口类和标题栏就退回系统默认图标。
         res.set_icon("resources/icons/icon.ico")
+            .set_icon_with_id("resources/icons/icon.ico", "1")
             .set("CompanyName", "CYANRHYTHM")
             .set("FileDescription", "SpaceSniffer-RS")
             .set("InternalName", "spacesniffer-rs")
