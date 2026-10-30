@@ -648,7 +648,10 @@ Section Uninstall
     DeleteRegKey HKCU "${UNINSTKEY}"
   !endif
 
-  DeleteRegValue HKCU "${MANUPRODUCTKEY}" "Installer Language"
+  ; 删掉整个键，而不只是 Installer Language：键里的“(默认)”存的正是上次安装目录
+  ; （由 RestorePreviousInstallLocation 读取），只删语言值会让「卸载 → 重装」
+  ; 继续沿用旧路径。本包 DISPLAYLANGUAGESELECTOR 为 false，此键无其它数据。
+  DeleteRegKey HKCU "${MANUPRODUCTKEY}"
 
   ; Delete app data
   {{#if appdata_paths}}
