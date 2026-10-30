@@ -30,8 +30,14 @@ use crate::scanner::{self, FileEntry, ScanPhase, ScanProgress};
 use crate::util;
 use crate::views;
 
-/// 跟随指针时最短的重绘间隔（40Hz）。
-const HOVER_REDRAW_INTERVAL: Duration = Duration::from_millis(25);
+/// 跟随指针时最短的重绘间隔（≈60Hz）。
+///
+/// 每帧都要重建整棵 treemap（几千次文字 shaping），所以不能每来一个鼠标
+/// 事件就重绘；但间隔再大，信息卡就会明显黏在指针后面。
+const HOVER_REDRAW_INTERVAL: Duration = Duration::from_millis(16);
+
+/// 累计移动超过这个距离才值得重绘一次（亚像素抖动直接忽略）。
+const HOVER_MIN_STEP: f64 = 2.0;
 
 /// 当前节点下所有子项的布局矩形（窗口坐标）。
 pub type CellLayout = Rc<Vec<(usize, Bounds<Pixels>)>>;
@@ -59,6 +65,14 @@ pub struct SpaceSnifferApp {
     pub(crate) hover_pos: Option<Point<Pixels>>,
     /// 上次因为「指针移动」而重绘的时间，用来给跟随重绘限频。
     last_hover_redraw: Instant,
+    /// 上一次**真正重绘出去**时指针所在的位置。
+    ///
+    /// 节流阈值必须拿它当基准，不能拿上一个鼠标事件的位置：后者每来一个
+    /// 事件就被刷新，慢速移动时每次只挪一两像素，永远够不到阈值，
+    /// 信息卡会整段僵在原地。
+    hover_drawn_pos: Option<Point<Pixels>>,
+    /// 已经排了一次「尾随重绘」，别重复排。
+    hover_tail_pending: Rc<Cell<bool>>,
 
     /// 画布在本帧的实际边界，由 treemap 的 prepaint 回填。
     pub(crate) canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -103,6 +117,8 @@ impl SpaceSnifferApp {
             hovered_cell: None,
             hovered_path: None,
             hover_pos: None,
+            hover_drawn_pos: None,
+            hover_tail_pending: Rc::new(Cell::new(false)),
             last_hover_redraw: Instant::now(),
             canvas_bounds: Rc::new(Cell::new(None)),
             cell_layout: Rc::new(RefCell::new(Rc::new(Vec::new()))),
@@ -581,25 +597,64 @@ impl SpaceSnifferApp {
         // 信息卡跟着指针走，所以悬停期间的移动也要重绘。
         //
         // 但一帧要提交上万个 quad，跟着每个像素重建整棵树太贵了：
-        // 用 2px 位移 + 25ms（40Hz）双重节流，肉眼看不出来，
-        // 却能把「移动鼠标就吃满一个核」压回去。
-        let moved = match self.hover_pos {
-            Some(previous) => (previous - event.position).magnitude() > 2.0,
-            None => true,
-        };
+        // 用「距上次重绘的位移」+「重绘间隔」双重节流。
+        //
+        // 位移基准是 `hover_drawn_pos`（上次真正画出去的位置），不能用
+        // `hover_pos`（每个事件都刷新）：慢速移动时每次只挪一两像素，
+        // 跟上一次事件比永远够不到阈值，信息卡就整段僵住不动。
         self.hover_pos = inside.then_some(event.position);
 
-        if moved && hovered.is_some() {
-            let now = Instant::now();
-            if now.duration_since(self.last_hover_redraw) >= HOVER_REDRAW_INTERVAL {
-                self.last_hover_redraw = now;
-                needs_redraw = true;
+        if hovered.is_some() {
+            let moved = self
+                .hover_drawn_pos
+                .map_or(true, |drawn| (drawn - event.position).magnitude() > HOVER_MIN_STEP);
+
+            if moved {
+                let now = Instant::now();
+                if now.duration_since(self.last_hover_redraw) >= HOVER_REDRAW_INTERVAL {
+                    self.last_hover_redraw = now;
+                    self.hover_drawn_pos = Some(event.position);
+                    needs_redraw = true;
+                } else {
+                    // 还在冷却里：排一次尾随重绘，否则鼠标停下后
+                    // 信息卡会停在最后一次画出去的位置，差出一截。
+                    self.schedule_hover_tail(cx);
+                }
             }
+        } else {
+            self.hover_drawn_pos = None;
         }
 
         if needs_redraw {
             cx.notify();
         }
+    }
+
+    /// 节流窗口里被压掉的移动：到点补画一次，保证信息卡落到最终位置。
+    fn schedule_hover_tail(&mut self, cx: &mut Context<Self>) {
+        if self.hover_tail_pending.get() {
+            return;
+        }
+        self.hover_tail_pending.set(true);
+
+        let pending = self.hover_tail_pending.clone();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(HOVER_REDRAW_INTERVAL).await;
+            pending.set(false);
+
+            this.update(cx, |this, cx| {
+                let Some(pos) = this.hover_pos else { return };
+                // 期间已经被正常重绘过，就不用再画一遍。
+                if this.hover_drawn_pos == Some(pos) {
+                    return;
+                }
+                this.last_hover_redraw = Instant::now();
+                this.hover_drawn_pos = Some(pos);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// 当前悬停的条目，供信息卡读取。
