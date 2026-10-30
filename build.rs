@@ -7,7 +7,19 @@ fn main() {
         // feature 已经用 embed-resource 往 exe 里塞了 RT_MANIFEST，
         // 再加一个会撞同一个资源 ID。
         let mut res = tauri_winres::WindowsResource::new();
-        res.set_icon("resources/icons/icon.ico");
+        // 与 Cargo.toml 的 [package.metadata.packager] 保持一致：
+        // 资源管理器「属性 → 详细信息」读的是这里的资源；安装包里的产品名/版本
+        // 来自 packager 配置，两处要一起改。FileVersion / ProductVersion
+        // 由 tauri-winres 取 CARGO_PKG_VERSION，不会与 Cargo.toml 脱节。
+        res.set_icon("resources/icons/icon.ico")
+            .set("CompanyName", "CYANRHYTHM")
+            .set("FileDescription", "SpaceSniffer-RS")
+            .set("InternalName", "spacesniffer-rs")
+            .set("OriginalFilename", "spacesniffer-rs.exe")
+            .set("ProductName", "SpaceSniffer-RS")
+            .set("LegalCopyright", "Copyright (c) 2026 CYANRHYTHM")
+            // 简体中文（0x0804）优先，探测不到就沿用默认语言。
+            .set_language(0x0804);
         res.compile().unwrap();
     }
 

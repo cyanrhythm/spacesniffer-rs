@@ -13,5 +13,41 @@ tauri-winres = "0.3"
 gpui-kit = "0.8"
 rust-i18n = "3"
 
+# ── Windows 打包（cargo-packager 0.11.x + NSIS）─────────────────
+# 用法：cargo packager --release
+# 产物：target/release/spacesniffer-rs_<version>_x64-setup.exe（NSIS 安装包）
+# 安装包素材与 NSIS 模板在 package/windows/，改图标/页眉/侧栏后重跑
+# package/windows/gen-assets.sh 再打包。
+#
+# 说明：
+# - 安装界面中英双语（简体中文优先、英文兜底），按系统语言自动选择；
+# - 默认 installMode=currentUser：装到 %LOCALAPPDATA%，不弹 UAC，卸载信息写 HKCU；
+# - 字体与图标已 include_bytes! 进二进制，resources 无需随包分发；
+# - 未配置签名：分发的安装包会被 SmartScreen 提示“未知发布者”，
+#   正式发布前请用代码签名证书给 exe / setup.exe 签名。
+[package.metadata.packager]
+product-name = "SpaceSniffer-RS"
+identifier = "com.cyanrhythm.SpaceSnifferRS"
+publisher = "CYANRHYTHM"
+copyright = "Copyright (c) 2026 CYANRHYTHM"
+category = "Utility"
+description = "磁盘空间分析工具：实时 Treemap 可视化（Rust + GPUI）"
+authors = ["CYANRHYTHM"]
+license-file = "LICENSE"
+icons = ["resources/icons/icon.ico"]
+formats = ["nsis"]
+before-packaging-command = "cargo build --release"
+
+[package.metadata.packager.nsis]
+# 安装包图标（由 package/windows/installer.svg 生成的多尺寸 ico）。
+installer-icon = "package/windows/installer.ico"
+# 欢迎/完成页左侧图（164×314 BMP）与页眉图（150×57 BMP），均为 2× 光栅化。
+sidebar-image = "package/windows/install-sidebar.bmp"
+header-image = "package/windows/install-header.bmp"
+# 安装界面语言：简体中文优先（可加 "English" 作备选）。
+languages = ["SimpChinese", "English"]
+# 自定义模板：在默认模板基础上开启 ManifestDPIAware（高分屏清晰）并接入卸载图标。
+template = "package/windows/installer.nsi"
+
 [profile.release]
 opt-level = 2

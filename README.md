@@ -53,6 +53,34 @@ cargo build --release
 
 > 首次构建需要编译 GPUI 全家桶，耗时较长；之后的增量构建有缓存。
 
+### Windows 安装包
+
+Windows 安装包用 **cargo-packager + NSIS** 生成（与 Siren 项目同一套方案）：配置在
+`Cargo.toml` 的 `[package.metadata.packager]`，素材与模板在 `package/windows/`。
+
+```bash
+# 只需一次；模板按 0.11.8 定制，升级版本时需同步 package/windows/installer.nsi
+cargo install cargo-packager --version 0.11.8 --locked
+cargo packager --release                # 会先自动 cargo build --release
+```
+
+产物为 `target/release/spacesniffer-rs_<version>_x64-setup.exe`。安装包特点：
+
+- 简体中文 / 英文界面，按系统语言自动选择
+- 支持 150% 等高 DPI 缩放（模板开启 `ManifestDPIAware`）
+- 自定义安装 / 卸载图标、页眉与欢迎页侧栏图
+- 默认按当前用户安装到 `%LOCALAPPDATA%\SpaceSniffer-RS`，不弹 UAC
+- 安装时显示 `LICENSE`（MIT）
+
+改安装包图标 / 页眉 / 侧栏后，重跑素材生成脚本再打包（依赖 MSYS2 的 `librsvg` 与 `imagemagick`）：
+
+```bash
+bash package/windows/gen-assets.sh
+```
+
+未签名的安装包会触发 SmartScreen 的「未知发布者」提示（「更多信息 → 仍要运行」可继续）。
+素材清单、模板升级注意事项见 [`package/windows/README.md`](./package/windows/README.md)。
+
 ## 使用方式
 
 ```bash
@@ -86,6 +114,9 @@ spacesniffer-rs/
 ├── resources/
 │   ├── fonts/                # 可选：编译进二进制的 CJK 字体
 │   └── icons/                # 应用图标（打包/资源用）
+├── package/
+│   ├── linux/                # Arch / Debian 打包（PKGBUILD、desktop）
+│   └── windows/              # cargo-packager + NSIS：模板、安装包素材、生成脚本
 ├── locales/                  # en / zh-CN 文案
 ├── doc/                      # 截图与 GPUI Kit API 速查（含源码行号实证）
 └── src/
